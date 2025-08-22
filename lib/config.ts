@@ -20,6 +20,13 @@ const envSchema = z.object({
   RESEND_AUDIENCE_ID: z.string().default(""),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  EMAIL_INGESTION_HOST: z.string().default("localhost"),
+  EMAIL_INGESTION_PORT: z.string().default("993"),
+  EMAIL_INGESTION_SECURE: z.enum(["true", "false"]).default("true"),
+  EMAIL_INGESTION_USER: z.string().default(""),
+  EMAIL_INGESTION_PASSWORD: z.string().default(""),
+  EMAIL_INGESTION_MAILBOX: z.string().default("INBOX"),
+  EMAIL_INGESTION_POLLING_INTERVAL: z.string().default("300000"),
 })
 
 const env = envSchema.parse(process.env)
@@ -75,6 +82,15 @@ const config = {
     apiKey: env.RESEND_API_KEY,
     from: env.RESEND_FROM_EMAIL,
     audienceId: env.RESEND_AUDIENCE_ID,
+  },
+  emailIngestion: {
+    host: env.EMAIL_INGESTION_HOST,
+    port: parseInt(env.EMAIL_INGESTION_PORT),
+    secure: env.EMAIL_INGESTION_SECURE === "true",
+    user: env.EMAIL_INGESTION_USER,
+    password: env.EMAIL_INGESTION_PASSWORD,
+    mailbox: env.EMAIL_INGESTION_MAILBOX,
+    pollingInterval: parseInt(env.EMAIL_INGESTION_POLLING_INTERVAL),
   },
 } as const
 

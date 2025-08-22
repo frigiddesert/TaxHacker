@@ -256,24 +256,24 @@ export default function AnalyzeForm({
 
         <div className="flex flex-row gap-4">
           <FormSelectCategory
-            title={fieldMap.categoryCode.name}
+            title="QB Account"
             categories={categories}
             name="categoryCode"
             value={formData.categoryCode}
             onValueChange={(value) => setFormData((prev) => ({ ...prev, categoryCode: value }))}
-            placeholder="Select Category"
+            placeholder="Select QB Account"
             hideIfEmpty={!fieldMap.categoryCode.isVisibleInAnalysis}
             required={fieldMap.categoryCode.isRequired}
           />
 
           {projects.length > 0 && (
             <FormSelectProject
-              title={fieldMap.projectCode.name}
+              title="QB Class"
               projects={projects}
               name="projectCode"
               value={formData.projectCode}
               onValueChange={(value) => setFormData((prev) => ({ ...prev, projectCode: value }))}
-              placeholder="Select Project"
+              placeholder="Select QB Class"
               hideIfEmpty={!fieldMap.projectCode.isVisibleInAnalysis}
               required={fieldMap.projectCode.isRequired}
             />

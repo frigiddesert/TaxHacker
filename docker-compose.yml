@@ -10,6 +10,7 @@ services:
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/taxhacker
     volumes:
       - ./data:/app/data
+      - ./uploads:/app/uploads
     restart: unless-stopped
     depends_on:
       - postgres
@@ -18,6 +19,16 @@ services:
       options:
         max-size: "100M"
         max-file: "3"
+
+  email-poller:
+    build: ../email-poller
+    env_file:
+      - ../email-poller/.env
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    depends_on:
+      - postgres
 
   postgres:
     image: postgres:17-alpine

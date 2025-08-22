@@ -1,0 +1,23 @@
+{
+  "name": "taxhacker-email-processor",
+  "version": "1.0.0",
+  "description": "Email processor for TaxHacker application",
+  "main": "email-processor.ts",
+  "scripts": {
+    "start": "node -r dotenv/config dist/email-processor.js",
+    "build": "tsc",
+    "dev": "ts-node -r dotenv/config src/email-processor.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "dotenv": "^16.4.5",
+    "imapflow": "^1.0.105",
+    "mailparser": "^3.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "prisma": "^6.6.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  }
+}
