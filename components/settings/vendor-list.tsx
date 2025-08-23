@@ -1,8 +1,9 @@
+import { Vendor } from "@prisma/client";
+import { Vendor } from \ @prisma/client\;
 "use client"
 
 import { Button } from "@/components/ui/button"
 import { CrudTable } from "@/components/settings/crud"
-import { Vendor } from "@/prisma/client"
 import { createVendor, updateVendor, deleteVendor } from "@/models/vendors"
 import { useActionState } from "react"
 import { useRouter } from "next/navigation"
@@ -48,10 +49,10 @@ const columns = [
   }
 ]
 
-export function VendorList({ vendors, userId }: { vendors: Vendor[]; userId: string }) {
+export function VendorList({ vendors, userId }: { vendors: any[]; userId: string }) {
   const router = useRouter()
 
-  const handleAddVendor = async (data: Partial<Vendor>) => {
+  const handleAddVendor = async (data: Partial<any>) => {
     try {
       const result = await createVendor(userId, {
         name: data.name || "",
@@ -127,3 +128,4 @@ export function VendorList({ vendors, userId }: { vendors: Vendor[]; userId: str
     </div>
   )
 }
+

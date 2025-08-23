@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/vas3k/taxhacker:latest
+    image: ericbakken/sandlandus:taxhacker
     container_name: taxhacker_app
     networks:
       - taxhacker_network
@@ -23,6 +23,13 @@ services:
       options:
         max-size: "100M"
         max-file: "3"
+
+  email-poller:
+    image: ericbakken/sandlandus:email-poller
+    container_name: email_poller_app
+    networks:
+      - taxhacker_network
+    restart: unless-stopped
 
 networks:
   taxhacker_network:

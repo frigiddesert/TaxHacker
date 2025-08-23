@@ -57,7 +57,7 @@ export async function GET(request: Request) {
 
       for (const transaction of chunk) {
         const amount = transaction.total ? (transaction.total / 100).toFixed(2) : "0.00"
-        const vendorName = transaction.vendor?.name || transaction.merchant || "Unknown Vendor"
+        const vendorName = transaction.merchant || "Unknown Vendor"
         const description = transaction.name || transaction.description || ""
         
         // First journal entry: Debit to Expense account
