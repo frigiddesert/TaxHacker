@@ -24,8 +24,10 @@ services:
     build: ../email-poller
     env_file:
       - ../email-poller/.env
+    environment:
+      - UPLOAD_PATH=/app/data/uploads
     volumes:
-      - ./uploads:/app/uploads
+      - ./data:/app/data
     restart: unless-stopped
     depends_on:
       - postgres

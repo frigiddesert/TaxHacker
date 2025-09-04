@@ -92,6 +92,15 @@ TaxHacker is a modern, AI-powered financial document management and transaction 
    ```
 4. **Both the app and poller will run, sharing the database and uploads volume.**
 
+### Email Poller Setup Notes
+
+- Use the same uploads directory for both services by setting `UPLOAD_PATH=/app/data/uploads` and mounting `./data:/app/data` in docker-compose for the app and the poller.
+- The poller stores files using the same convention as the app:
+  - DB `files.path`: `unsorted/<uuid>.<ext>`
+  - Disk path: `UPLOAD_PATH/<user.email>/unsorted/<uuid>.<ext>`
+- Processed emails are marked as `\Seen` to avoid reprocessing.
+- Only one ingestion path should be used in production: the standalone poller (docker service) or the in-app ingestion service. This fork defaults to the standalone poller.
+
 ---
 
 ## Development Files
