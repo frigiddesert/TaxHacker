@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node -r dotenv/config dist/email-processor.js",
     "build": "tsc",
-    "dev": "ts-node -r dotenv/config src/email-processor.ts"
+    "dev": "ts-node -r dotenv/config src/email-processor.ts",
+    "qbo": "ts-node qbo-cli.ts",
+    "qbo:auth-url": "ts-node qbo-cli.ts --env sandbox auth-url",
+    "imap:classify": "ts-node imap-classify.ts --env sandbox"
   },
   "dependencies": {
     "@prisma/client": "^6.6.0",

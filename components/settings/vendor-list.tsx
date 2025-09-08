@@ -1,5 +1,4 @@
-import { Vendor } from "@prisma/client";
-import { Vendor } from \ @prisma/client\;
+import { Vendor, Category, Project } from "@/prisma/client"
 "use client"
 
 import { Button } from "@/components/ui/button"
@@ -10,7 +9,8 @@ import { useRouter } from "next/navigation"
 
 const paymentMethodOptions = ["bill_pay", "ach", "autopay"]
 
-const columns = [
+function makeColumns(categoryCodes: string[], projectCodes: string[]) {
+  const columns = [
   {
     key: "name",
     label: "Vendor Name",
@@ -27,6 +27,22 @@ const columns = [
     defaultValue: "bill_pay"
   },
   {
+    key: "defaultCategoryCode",
+    label: "Default Account (Category Code)",
+    type: "select",
+    options: ["", ...categoryCodes],
+    editable: true,
+    defaultValue: ""
+  },
+  {
+    key: "defaultProjectCode",
+    label: "Default Class (Project Code)",
+    type: "select",
+    options: ["", ...projectCodes],
+    editable: true,
+    defaultValue: ""
+  },
+  {
     key: "contactEmail",
     label: "Contact Email",
     type: "text",
@@ -41,16 +57,50 @@ const columns = [
     defaultValue: ""
   },
   {
+    key: "fromEmailsText" as any,
+    label: "From Emails (comma-separated)",
+    type: "text",
+    editable: true,
+    defaultValue: ""
+  },
+  {
+    key: "fromDomainsText" as any,
+    label: "From Domains (comma-separated)",
+    type: "text",
+    editable: true,
+    defaultValue: ""
+  },
+  {
+    key: "subjectKeywordsText" as any,
+    label: "Subject Keywords (comma-separated)",
+    type: "text",
+    editable: true,
+    defaultValue: ""
+  },
+  {
     key: "isActive",
     label: "Active",
     type: "checkbox",
     editable: true,
     defaultValue: true
   }
-]
+  ] as const
+  return columns as any
+}
 
-export function VendorList({ vendors, userId }: { vendors: any[]; userId: string }) {
+function toList(text?: string | null) {
+  if (!text) return []
+  return text
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+export function VendorList({ vendors, userId, categories, projects }: { vendors: any[]; userId: string; categories: Category[]; projects: Project[] }) {
   const router = useRouter()
+  const categoryCodes = categories.map((c) => c.code)
+  const projectCodes = projects.map((p) => p.code)
+  const columns = makeColumns(categoryCodes, projectCodes)
 
   const handleAddVendor = async (data: Partial<any>) => {
     try {
@@ -59,6 +109,11 @@ export function VendorList({ vendors, userId }: { vendors: any[]; userId: string
         paymentMethod: data.paymentMethod || "bill_pay",
         contactEmail: data.contactEmail || undefined,
         contactPhone: data.contactPhone || undefined,
+        defaultCategoryCode: data.defaultCategoryCode || undefined,
+        defaultProjectCode: data.defaultProjectCode || undefined,
+        fromEmails: toList(data.fromEmailsText),
+        fromDomains: toList(data.fromDomainsText),
+        subjectKeywords: toList(data.subjectKeywordsText),
         isActive: data.isActive !== undefined ? Boolean(data.isActive) : true
       })
       
@@ -73,9 +128,16 @@ export function VendorList({ vendors, userId }: { vendors: any[]; userId: string
     }
   }
 
-  const handleEditVendor = async (id: string, data: Partial<Vendor>) => {
+  const handleEditVendor = async (id: string, data: Partial<Vendor & any>) => {
     try {
-      const result = await updateVendor(id, userId, data)
+      const payload: any = { ...data }
+      if (typeof data.fromEmailsText === "string") payload.fromEmails = toList(data.fromEmailsText)
+      if (typeof data.fromDomainsText === "string") payload.fromDomains = toList(data.fromDomainsText)
+      if (typeof data.subjectKeywordsText === "string") payload.subjectKeywords = toList(data.subjectKeywordsText)
+      delete payload.fromEmailsText
+      delete payload.fromDomainsText
+      delete payload.subjectKeywordsText
+      const result = await updateVendor(id, userId, payload)
       if (result) {
         router.refresh()
         return { success: true }
@@ -102,16 +164,19 @@ export function VendorList({ vendors, userId }: { vendors: any[]; userId: string
   }
 
   // Format vendors for the CRUD table
-  const formattedVendors = vendors.map(vendor => ({
+  const formattedVendors = vendors.map((vendor: any) => ({
     ...vendor,
-    isDeletable: true // All vendors can be deleted
+    fromEmailsText: Array.isArray(vendor.fromEmails) ? vendor.fromEmails.join(", ") : "",
+    fromDomainsText: Array.isArray(vendor.fromDomains) ? vendor.fromDomains.join(", ") : "",
+    subjectKeywordsText: Array.isArray(vendor.subjectKeywords) ? vendor.subjectKeywords.join(", ") : "",
+    isDeletable: true,
   }))
 
   return (
     <div className="space-y-6">
       <CrudTable
         items={formattedVendors}
-        columns={columns}
+        columns={columns as any}
         onAdd={handleAddVendor}
         onEdit={handleEditVendor}
         onDelete={handleDeleteVendor}

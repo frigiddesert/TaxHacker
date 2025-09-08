@@ -99,3 +99,58 @@ The email processor marks files for AI processing by setting `cachedParseResult`
 - Use app-specific passwords for IMAP authentication
 - Ensure the database connection uses SSL/TLS
 - Restrict file system permissions for the uploads directory
+
+---
+
+# QuickBooks CLI Tester
+
+A small CLI to test QuickBooks OAuth and API calls without the web app.
+
+## Setup
+
+1. From repository root, create environment files:
+
+   - `.env.sandbox` (copy from `.env.sandbox.example`)
+   - `.env.production` (copy from `.env.production.example`)
+
+   Fill `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`, and `QBO_ENV` accordingly.
+
+2. Install dependencies in `scripts/`:
+
+   ```bash
+   cd scripts
+   npm install
+   ```
+
+## Commands
+
+Run all commands from `TaxHacker/scripts` directory.
+
+```bash
+# Show the QuickBooks OAuth URL (sandbox)
+npx ts-node qbo-cli.ts --env sandbox auth-url
+
+# Exchange code for tokens (paste code and realmId from redirect)
+npx ts-node qbo-cli.ts --env sandbox exchange --code <code> --realmId <realm-id>
+
+# Refresh tokens
+npx ts-node qbo-cli.ts --env sandbox refresh --refresh-token <refresh-token>
+
+# Query accounts
+npx ts-node qbo-cli.ts --env sandbox query-accounts --access-token <access-token> --realmId <realm-id>
+
+# Create a simple Bill
+npx ts-node qbo-cli.ts --env sandbox create-bill \
+  --access-token <access-token> \
+  --realmId <realm-id> \
+  --vendor "Acme, Inc" \
+  --amount 12.34 \
+  --account "Office Supplies" \
+  --class "HQ" \
+  --date 2025-09-01 \
+  --memo "Test Bill"
+```
+
+Notes:
+- The CLI picks `.env.sandbox` or `.env.production` automatically with `--env sandbox|production`.
+- Use the web app’s `/qb/connect` to authorize once, then paste the `code` and `realmId` into the CLI `exchange` command if you want to test tokens manually.

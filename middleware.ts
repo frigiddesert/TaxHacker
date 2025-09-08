@@ -7,6 +7,14 @@ export default async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Accept proxy-auth headers from Caddy/Authelia when enabled
+  if (globalConfig.auth.trustProxyAuthHeaders) {
+    const remoteEmail = request.headers.get("Remote-Email") || request.headers.get("remote-email")
+    if (remoteEmail) {
+      return NextResponse.next()
+    }
+  }
+
   const sessionCookie = getSessionCookie(request, { cookiePrefix: "taxhacker" })
   if (!sessionCookie) {
     return NextResponse.redirect(new URL(globalConfig.auth.loginUrl, request.url))

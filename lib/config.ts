@@ -27,6 +27,16 @@ const envSchema = z.object({
   EMAIL_INGESTION_PASSWORD: z.string().default(""),
   EMAIL_INGESTION_MAILBOX: z.string().default("INBOX"),
   EMAIL_INGESTION_POLLING_INTERVAL: z.string().default("300000"),
+  TRUST_PROXY_AUTH_HEADERS: z.enum(["true", "false"]).default("false"),
+  // QuickBooks Online
+  QBO_CLIENT_ID: z.string().default(""),
+  QBO_CLIENT_SECRET: z.string().default(""),
+  QBO_REDIRECT_URI: z.string().default(""),
+  QBO_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  QBO_WEBHOOK_VERIFIER: z.string().default(""),
+  QBO_COA_PATH: z.string().default(""),
+  QBO_CLASSES_PATH: z.string().default(""),
+  QBO_SCOPES: z.string().default("com.intuit.quickbooks.accounting offline_access"),
 })
 
 const env = envSchema.parse(process.env)
@@ -71,12 +81,23 @@ const config = {
     secret: env.BETTER_AUTH_SECRET,
     loginUrl: "/enter",
     disableSignup: env.DISABLE_SIGNUP === "true" || env.SELF_HOSTED_MODE === "true",
+    trustProxyAuthHeaders: env.TRUST_PROXY_AUTH_HEADERS === "true",
   },
   stripe: {
     secretKey: env.STRIPE_SECRET_KEY,
     webhookSecret: env.STRIPE_WEBHOOK_SECRET,
     paymentSuccessUrl: `${env.BASE_URL}/cloud/payment/success?session_id={CHECKOUT_SESSION_ID}`,
     paymentCancelUrl: `${env.BASE_URL}/cloud`,
+  },
+  quickbooks: {
+    clientId: env.QBO_CLIENT_ID,
+    clientSecret: env.QBO_CLIENT_SECRET,
+    redirectUri: env.QBO_REDIRECT_URI,
+    env: env.QBO_ENV,
+    webhookVerifier: env.QBO_WEBHOOK_VERIFIER,
+    chartOfAccountsPath: env.QBO_COA_PATH,
+    classesPath: env.QBO_CLASSES_PATH,
+    scopes: env.QBO_SCOPES,
   },
   email: {
     apiKey: env.RESEND_API_KEY,

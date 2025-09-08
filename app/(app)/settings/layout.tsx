@@ -45,6 +45,10 @@ const settingsCategories = [
     href: "/settings/vendors",
   },
   {
+    title: "QuickBooks",
+    href: "/settings/qbo",
+  },
+  {
     title: "Backups",
     href: "/settings/backups",
   },

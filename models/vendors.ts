@@ -10,6 +10,11 @@ export type VendorData = {
   contactPhone?: string
   notes?: string
   isActive?: boolean
+  defaultCategoryCode?: string | null
+  defaultProjectCode?: string | null
+  fromEmails?: string[] | null
+  fromDomains?: string[] | null
+  subjectKeywords?: string[] | null
 }
 
 export const getVendors = cache(async (userId: string): Promise<Vendor[]> => {
@@ -35,15 +40,24 @@ export const createVendor = async (userId: string, data: VendorData): Promise<Ve
   return await prisma.vendor.create({
     data: {
       ...data,
+      fromEmails: data.fromEmails ?? [],
+      fromDomains: data.fromDomains ?? [],
+      subjectKeywords: data.subjectKeywords ?? [],
       userId
     }
   })
 }
 
 export const updateVendor = async (id: string, userId: string, data: Partial<VendorData>): Promise<Vendor> => {
+  const { fromEmails, fromDomains, subjectKeywords, ...rest } = data
   return await prisma.vendor.update({
     where: { id, userId },
-    data
+    data: {
+      ...rest,
+      ...(fromEmails !== undefined ? { fromEmails: fromEmails ?? [] } : {}),
+      ...(fromDomains !== undefined ? { fromDomains: fromDomains ?? [] } : {}),
+      ...(subjectKeywords !== undefined ? { subjectKeywords: subjectKeywords ?? [] } : {}),
+    }
   })
 }
 

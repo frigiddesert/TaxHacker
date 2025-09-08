@@ -1,6 +1,8 @@
 import { Metadata } from "next"
 import { getCurrentUser } from "@/lib/auth"
 import { getVendors } from "@/models/vendors"
+import { getCategories } from "@/models/categories"
+import { getProjects } from "@/models/projects"
 import { VendorList } from "@/components/settings/vendor-list"
 
 export const metadata: Metadata = {
@@ -11,6 +13,8 @@ export const metadata: Metadata = {
 export default async function VendorsPage() {
   const user = await getCurrentUser()
   const vendors = await getVendors(user.id)
+  const categories = await getCategories(user.id)
+  const projects = await getProjects(user.id)
 
   return (
     <div className="w-full max-w-4xl">
@@ -22,7 +26,7 @@ export default async function VendorsPage() {
         Manage your vendors and their payment methods. Set up bill pay, ACH, or autopay preferences for each vendor.
       </p>
 
-      <VendorList vendors={vendors} userId={user.id} />
+      <VendorList vendors={vendors} userId={user.id} categories={categories} projects={projects} />
     </div>
   )
 }

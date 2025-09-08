@@ -114,8 +114,9 @@ export function InvoiceGenerator({
 
       const pdfBuffer = await generateInvoicePDF(formData)
 
-      // Create a blob from the buffer
-      const blob = new Blob([pdfBuffer], { type: "application/pdf" })
+      // Create a blob from the buffer (ensure correct BlobPart type)
+      const arrayBuffer: ArrayBuffer = (pdfBuffer as Uint8Array).buffer as ArrayBuffer
+      const blob = new Blob([arrayBuffer], { type: "application/pdf" })
 
       // Create a URL for the blob
       const url = URL.createObjectURL(blob)

@@ -38,6 +38,11 @@ yarn-error.log*
 
 # env files
 .env
+/.env.sandbox
+/.env.production
+
+# logs
+/logs/
 
 # vercel
 .vercel

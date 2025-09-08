@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    container_name: taxhacker_local
+    environment:
+      - NODE_ENV=production
+      - SELF_HOSTED_MODE=true
+      - UPLOAD_PATH=/app/data/uploads
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/taxhacker
+      - TRUST_PROXY_AUTH_HEADERS=false
+      # QuickBooks
+      - QBO_CLIENT_ID=${QBO_CLIENT_ID}
+      - QBO_CLIENT_SECRET=${QBO_CLIENT_SECRET}
+      - QBO_REDIRECT_URI=${QBO_REDIRECT_URI}
+      - QBO_ENV=${QBO_ENV:-sandbox}
+      - QBO_WEBHOOK_VERIFIER=${QBO_WEBHOOK_VERIFIER}
+      - QBO_COA_PATH=/app/config/chart_of_accounts.csv
+      - QBO_CLASSES_PATH=/app/config/classes.txt
+    ports:
+      - "7331:7331"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    depends_on:
+      - postgres
+    command: ["/bin/sh","-c","npx prisma generate && npx prisma migrate deploy && npm run start"]
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=taxhacker
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

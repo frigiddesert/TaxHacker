@@ -10,7 +10,8 @@ import { getCategories } from "@/models/categories"
 import { getFields } from "@/models/fields"
 import { getProjects } from "@/models/projects"
 import { getTransactions, TransactionFilters } from "@/models/transactions"
-import { Download, Plus, Upload } from "lucide-react"
+import { Download, Plus, Upload, Send } from "lucide-react"
+import { SendBillsToQBO } from "@/components/quickbooks/send-bills"
 import { Metadata } from "next"
 import { redirect } from "next/navigation"
 
@@ -52,6 +53,12 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
               <span className="hidden md:block">Export</span>
             </Button>
           </ExportTransactionsDialog>
+          <SendBillsToQBO total={total}>
+            <Button variant="outline">
+              <Send />
+              <span className="hidden md:block">Send to QuickBooks</span>
+            </Button>
+          </SendBillsToQBO>
           <NewTransactionDialog>
             <Button>
               <Plus /> <span className="hidden md:block">Add Transaction</span>

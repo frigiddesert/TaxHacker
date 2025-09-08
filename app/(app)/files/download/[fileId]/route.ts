@@ -30,9 +30,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ file
 
     // Read file
     const fileBuffer = await fs.readFile(fullFilePath)
+    const body = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength) as ArrayBuffer
 
     // Return file with proper content type and encoded filename
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(body, {
       headers: {
         "Content-Type": file.mimetype,
           "Content-Disposition": `attachment; filename*=${encodeFilename(file.filename)}`,

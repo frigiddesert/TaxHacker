@@ -2,27 +2,33 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { config } from 'dotenv';
 
-// Load environment variables
+// Load environment variables: prefer local .env, else fall back to root .env files
 config();
+// If IMAP_* not set, try loading root .env.sandbox or .env.production based on QBO_ENV, or default .env
+if (!process.env.IMAP_HOST && !process.env.EMAIL_INGESTION_HOST) {
+  const envName = process.env.QBO_ENV === 'production' ? '.env.production' : '.env.sandbox'
+  try { config({ path: path.resolve(__dirname, `../${envName}`) }) } catch {}
+  try { config({ path: path.resolve(__dirname, '../.env') }) } catch {}
+}
 
 // Initialize Prisma client
 const prisma = new PrismaClient();
 
 // Email configuration from environment variables
 const emailConfig = {
-  host: process.env.IMAP_HOST || 'localhost',
-  port: parseInt(process.env.IMAP_PORT || '993'),
-  secure: process.env.IMAP_SECURE === 'true',
+  host: process.env.IMAP_HOST || process.env.EMAIL_INGESTION_HOST || 'localhost',
+  port: parseInt(process.env.IMAP_PORT || process.env.EMAIL_INGESTION_PORT || '993'),
+  secure: (process.env.IMAP_SECURE ?? process.env.EMAIL_INGESTION_SECURE) === 'true',
   auth: {
-    user: process.env.IMAP_USER || '',
-    pass: process.env.IMAP_PASS || ''
+    user: process.env.IMAP_USER || process.env.EMAIL_INGESTION_USER || '',
+    pass: process.env.IMAP_PASS || process.env.EMAIL_INGESTION_PASSWORD || ''
   },
-  mailbox: process.env.IMAP_MAILBOX || 'INBOX',
-  pollingInterval: parseInt(process.env.IMAP_POLLING_INTERVAL || '300000') // 5 minutes default
+  mailbox: process.env.IMAP_MAILBOX || process.env.EMAIL_INGESTION_MAILBOX || 'INBOX',
+  pollingInterval: parseInt(process.env.IMAP_POLLING_INTERVAL || process.env.EMAIL_INGESTION_POLLING_INTERVAL || '300000') // 5 minutes default
 };
 
 // Email ingestion service class
@@ -64,26 +70,73 @@ class EmailIngestionService {
       console.log('Polling emails...');
       const lock = await this.client.getMailboxLock(emailConfig.mailbox);
       try {
-        // Fetch unseen messages
-        const messages = await this.client.fetch('1:*', { 
-          envelope: true, 
-          source: true,
-          flags: true
+        const mb: any = (this.client as any).mailbox;
+        if (!mb) return;
+        const uidValidity = BigInt(mb.uidValidity ?? 0);
+        const uidNext = mb.uidNext || 1;
+
+        const user = await prisma.user.findFirst();
+        if (!user) { console.error('No user found in database'); return; }
+
+        const last = await prisma.emailIngestionLog.aggregate({
+          _max: { uid: true },
+          where: { userId: user.id, mailbox: emailConfig.mailbox, uidValidity },
         });
+        const lastUid = last._max.uid ?? 0;
+        const startUid = lastUid + 1;
+        const endUid = Math.max(startUid, uidNext - 1);
+        if (endUid < startUid) return;
+        const range = `${startUid}:${endUid}`;
+
+        const messages = await this.client.fetch(range, { uid: true, envelope: true, source: true });
 
         for await (const message of messages) {
-          if (message.flags.has('\\Seen')) {
-            console.log('Skipping already seen message');
-            continue;
-          }
+          const uid: number = message.uid;
+          // insert log row; skip if duplicate
+          try {
+            await prisma.emailIngestionLog.create({
+              data: {
+                userId: user.id,
+                mailbox: emailConfig.mailbox,
+                uidValidity,
+                uid,
+                messageId: message.envelope?.messageId || null,
+                internalDate: message.envelope?.date || null,
+                from: message.envelope?.from?.map((a: any) => a.address || a.name).join(', '),
+                subject: message.envelope?.subject || '',
+                status: 'pending',
+              },
+            });
+          } catch { /* duplicate */ }
 
           try {
-            await this.processEmail(message.source, message.envelope);
-            // Mark as seen after successful processing
-            await this.client?.messageFlagsAdd(message.uid, ['\\Seen']);
+            if (!message.source) throw new Error('Empty message source');
+            const hashes = await this.processEmail(message.source as Buffer, message.envelope);
+            await prisma.emailIngestionLog.update({
+              where: {
+                userId_mailbox_uidValidity_uid: {
+                  userId: user.id,
+                  mailbox: emailConfig.mailbox,
+                  uidValidity,
+                  uid,
+                },
+              },
+              data: { status: 'processed', attachmentHashes: hashes || [] },
+            });
             console.log('Successfully processed email');
           } catch (error) {
             console.error('Failed to process email:', error);
+            await prisma.emailIngestionLog.update({
+              where: {
+                userId_mailbox_uidValidity_uid: {
+                  userId: user.id,
+                  mailbox: emailConfig.mailbox,
+                  uidValidity,
+                  uid,
+                },
+              },
+              data: { status: 'error', error: error instanceof Error ? error.message : String(error) },
+            });
           }
         }
       } finally {
@@ -94,22 +147,20 @@ class EmailIngestionService {
     }
   }
 
-  private async processEmail(emailSource: Buffer, envelope: any): Promise<void> {
+  private async processEmail(emailSource: Buffer, envelope: any): Promise<string[] | null> {
     try {
       const parsed = await simpleParser(emailSource);
-      
-      // Check if this is likely an invoice email
-      const isInvoiceEmail = this.isInvoiceEmail(parsed);
-      
-      if (isInvoiceEmail) {
-        await this.processInvoiceEmail(parsed, envelope);
-      }
+      const hashes = await this.getHashesIfAllowed(parsed)
+      if (!hashes) { console.log('Skipping email: not a known vendor invoice'); return null }
+      await this.processInvoiceEmail(parsed, envelope);
+      return hashes
     } catch (error) {
       console.error('Error parsing email:', error);
     }
+    return null
   }
 
-  private isInvoiceEmail(parsed: any): boolean {
+  private async getHashesIfAllowed(parsed: any): Promise<string[] | null> {
     const subject = parsed.subject?.toLowerCase() || '';
     const body = parsed.text?.toLowerCase() || '';
     const html = parsed.html?.toLowerCase() || '';
@@ -119,15 +170,36 @@ class EmailIngestionService {
       'due', 'amount', 'total', 'tax', 'vendor', 'supplier'
     ];
 
-    const hasInvoiceKeyword = invoiceKeywords.some(keyword => 
-      subject.includes(keyword) || body.includes(keyword) || html.includes(keyword)
-    );
+    const hasInvoiceKeyword = invoiceKeywords.some(keyword => subject.includes(keyword) || body.includes(keyword) || html.includes(keyword));
 
-    const hasPdfAttachment = parsed.attachments?.some((att: any) => 
-      att.contentType === 'application/pdf'
-    );
+    const pdfs = parsed.attachments?.filter((att: any) => att.contentType === 'application/pdf') || [];
+    const hasPdfAttachment = pdfs.length > 0;
 
-    return hasInvoiceKeyword || hasPdfAttachment;
+    // Known vendor match from DB
+    try {
+      const user = await prisma.user.findFirst()
+      if (!user) return null
+      const vendors = await prisma.vendor.findMany({ where: { userId: user.id, isActive: true } })
+      const fromAddrs: string[] = []
+      const from = parsed.from?.value || []
+      for (const a of from) {
+        if (a.address) fromAddrs.push(a.address.toLowerCase())
+      }
+      const domains = fromAddrs.map((a) => a.split('@')[1])
+      for (const v of vendors) {
+        const emails: string[] = Array.isArray((v as any).fromEmails) ? (v as any).fromEmails : []
+        const doms: string[] = Array.isArray((v as any).fromDomains) ? (v as any).fromDomains : []
+        const keys: string[] = Array.isArray((v as any).subjectKeywords) ? (v as any).subjectKeywords : []
+        if (emails.some((e) => fromAddrs.includes(e.toLowerCase()))) return hasPdfAttachment ? pdfs.map((p: any) => createHash('sha256').update(p.content).digest('hex')) : null
+        if (doms.some((d) => domains.includes(d.toLowerCase()))) return hasPdfAttachment ? pdfs.map((p: any) => createHash('sha256').update(p.content).digest('hex')) : null
+        if (keys.some((k) => subject.includes(k.toLowerCase()))) return hasPdfAttachment ? pdfs.map((p: any) => createHash('sha256').update(p.content).digest('hex')) : null
+      }
+    } catch (e) {
+      console.error('Vendor match failed', e)
+    }
+
+    // Default: require both keyword and PDF to ingest
+    return hasInvoiceKeyword && hasPdfAttachment ? pdfs.map((p: any) => createHash('sha256').update(p.content).digest('hex')) : null;
   }
 
   private async processInvoiceEmail(parsed: any, envelope: any): Promise<void> {
@@ -181,7 +253,7 @@ class EmailIngestionService {
     });
 
     // Save PDF file to the file system
-    const fullFilePath = path.join(process.env.UPLOADS_DIR || './uploads', fileRecord.path);
+    const fullFilePath = path.join(process.env.UPLOAD_PATH || process.env.UPLOADS_DIR || './uploads', fileRecord.path);
     
     // Create directory if it doesn't exist
     await mkdir(path.dirname(fullFilePath), { recursive: true });
@@ -222,7 +294,7 @@ class EmailIngestionService {
     });
 
     // Save email content to the file system
-    const fullFilePath = path.join(process.env.UPLOADS_DIR || './uploads', fileRecord.path);
+    const fullFilePath = path.join(process.env.UPLOAD_PATH || process.env.UPLOADS_DIR || './uploads', fileRecord.path);
     
     // Create directory if it doesn't exist
     await mkdir(path.dirname(fullFilePath), { recursive: true });

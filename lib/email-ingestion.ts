@@ -7,6 +7,12 @@ import { createFile } from '@/models/files';
 import { getCurrentUser } from './auth';
 import { getUserUploadsDirectory, safePathJoin, unsortedFilePath } from './files';
 import config from './config';
+import { prisma } from './db';
+import crypto from 'crypto';
+import { getVendors } from '@/models/vendors';
+import { getSettings } from '@/models/settings';
+import { requestLLM } from '@/ai/providers/llmProvider';
+import { getLLMSettings } from '@/models/settings';
 
 export interface EmailIngestionConfig {
   host: string;
@@ -62,22 +68,77 @@ export class EmailIngestionService {
     try {
       const lock = await this.client.getMailboxLock(this.config.mailbox);
       try {
-        // Fetch unseen messages
-        const messages = await this.client.fetch('1:*', { 
-          envelope: true, 
-          source: true,
-          flags: true
+        const mb: any = (this.client as any).mailbox;
+        if (!mb) {
+          return;
+        }
+        const uidValidity = BigInt(mb.uidValidity ?? 0);
+        const uidNext = mb.uidNext || 1;
+
+        const user = await getCurrentUser();
+        const last = await prisma.emailIngestionLog.aggregate({
+          _max: { uid: true },
+          where: { userId: user.id, mailbox: this.config.mailbox, uidValidity },
         });
+        const lastUid = last._max.uid ?? 0;
+        const startUid = lastUid + 1;
+        const endUid = Math.max(startUid, uidNext - 1);
+        if (endUid < startUid) return;
+
+        const range = `${startUid}:${endUid}`;
+        const messages = await this.client.fetch(range, { uid: true, envelope: true, source: true });
 
         for await (const message of messages) {
-          if (message.flags.has('\\Seen')) continue;
+          const uid: number = message.uid;
+          // Try to insert log; if exists, skip
+          try {
+            await prisma.emailIngestionLog.create({
+              data: {
+                userId: user.id,
+                mailbox: this.config.mailbox,
+                uidValidity,
+                uid,
+                messageId: message.envelope?.messageId || null,
+                internalDate: message.envelope?.date || null,
+                from: message.envelope?.from?.map((a: any) => a.address || a.name).join(', '),
+                subject: message.envelope?.subject || '',
+                status: 'pending',
+              },
+            });
+          } catch (e: any) {
+            // Unique violation -> already processed or in-progress
+            continue;
+          }
 
           try {
-            await this.processEmail(message.source, message.envelope);
-            // Mark as seen after successful processing
-            await this.client?.messageFlagsAdd(message.uid, ['\\Seen']);
-          } catch (error) {
+            if (!message.source) {
+              throw new Error('Empty message source')
+            }
+            const attachmentHashes = await this.processEmail(message.source as Buffer, message.envelope);
+            await prisma.emailIngestionLog.update({
+              where: {
+                userId_mailbox_uidValidity_uid: {
+                  userId: user.id,
+                  mailbox: this.config.mailbox,
+                  uidValidity,
+                  uid,
+                },
+              },
+              data: { status: 'processed', attachmentHashes: attachmentHashes || [] },
+            });
+          } catch (error: any) {
             console.error('Failed to process email:', error);
+            await prisma.emailIngestionLog.update({
+              where: {
+                userId_mailbox_uidValidity_uid: {
+                  userId: user.id,
+                  mailbox: this.config.mailbox,
+                  uidValidity,
+                  uid,
+                },
+              },
+              data: { status: 'error', error: String(error?.message || error) },
+            });
           }
         }
       } finally {
@@ -88,22 +149,42 @@ export class EmailIngestionService {
     }
   }
 
-  private async processEmail(emailSource: Buffer, envelope: any): Promise<void> {
+  private async processEmail(emailSource: Buffer, envelope: any): Promise<string[] | null> {
     try {
       const parsed = await simpleParser(emailSource);
-      
-      // Check if this is likely an invoice email
-      const isInvoiceEmail = this.isInvoiceEmail(parsed);
-      
-      if (isInvoiceEmail) {
-        await this.processInvoiceEmail(parsed, envelope);
+      const user = await getCurrentUser();
+
+      // Step 1: Known vendor match (domains/emails/subject)
+      const matchedVendor = await this.matchKnownVendor(user.id, parsed);
+      if (matchedVendor) {
+        const hasPdf = this.hasPdfAttachment(parsed)
+        if (hasPdf) {
+          console.log('[Email] Known vendor matched, ingesting attachments:', matchedVendor.name)
+          return await this.processInvoiceEmail(parsed, envelope);
+        }
+      }
+
+      // Step 2: Lightweight heuristic
+      if (this.isInvoiceHeuristic(parsed)) {
+        if (this.hasPdfAttachment(parsed)) {
+          console.log('[Email] Heuristic matched with PDF, ingesting')
+          return await this.processInvoiceEmail(parsed, envelope)
+        }
+      }
+
+      // Step 3: LLM classification (subject/from/to; fallback to short body)
+      const shouldIngest = await this.classifyWithLLM(user.id, parsed)
+      if (shouldIngest && this.hasPdfAttachment(parsed)) {
+        console.log('[Email] LLM classified as invoice, ingesting')
+        return await this.processInvoiceEmail(parsed, envelope)
       }
     } catch (error) {
       console.error('Error parsing email:', error);
     }
+    return null
   }
 
-  private isInvoiceEmail(parsed: any): boolean {
+  private isInvoiceHeuristic(parsed: any): boolean {
     const subject = parsed.subject?.toLowerCase() || '';
     const body = parsed.text?.toLowerCase() || '';
     const html = parsed.html?.toLowerCase() || '';
@@ -117,24 +198,98 @@ export class EmailIngestionService {
       subject.includes(keyword) || body.includes(keyword) || html.includes(keyword)
     );
 
-    const hasPdfAttachment = parsed.attachments?.some((att: any) => 
-      att.contentType === 'application/pdf'
-    );
-
-    return hasInvoiceKeyword || hasPdfAttachment;
+    return hasInvoiceKeyword;
   }
 
-  private async processInvoiceEmail(parsed: any, envelope: any): Promise<void> {
+  private hasPdfAttachment(parsed: any): boolean {
+    return parsed.attachments?.some((att: any) => att.contentType === 'application/pdf') || false
+  }
+
+  private async matchKnownVendor(userId: string, parsed: any) {
+    try {
+      const vendors = await getVendors(userId)
+      const fromAddrs: string[] = []
+      const from = parsed.from?.value || []
+      for (const a of from) {
+        if (a.address) fromAddrs.push(a.address.toLowerCase())
+      }
+      const domains = fromAddrs.map((a) => a.split('@')[1])
+      const subj = (parsed.subject || '').toLowerCase()
+
+      for (const v of vendors) {
+        if (v.isActive === false) continue
+        const emails: string[] = Array.isArray((v as any).fromEmails) ? (v as any).fromEmails : []
+        const doms: string[] = Array.isArray((v as any).fromDomains) ? (v as any).fromDomains : []
+        const keys: string[] = Array.isArray((v as any).subjectKeywords) ? (v as any).subjectKeywords : []
+
+        if (emails.some((e) => fromAddrs.includes(e.toLowerCase()))) return v
+        if (doms.some((d) => domains.includes(d.toLowerCase()))) return v
+        if (keys.some((k) => subj.includes(k.toLowerCase()))) return v
+      }
+    } catch (e) {
+      console.warn('[Email] Vendor match failed', e)
+    }
+    return null
+  }
+
+  private async classifyWithLLM(userId: string, parsed: any): Promise<boolean> {
+    try {
+      const settings = await getSettings(userId)
+      const llmSettings = getLLMSettings(settings)
+      const fromAddr = parsed.from?.text || ''
+      const toAddr = parsed.to?.text || ''
+      const subject = parsed.subject || ''
+      let bodySnippet = ''
+      // Only include small snippet if empty subject or unclear
+      if (!subject || subject.length < 8) {
+        const text = parsed.text || ''
+        bodySnippet = text.substring(0, 240)
+      }
+      const prompt = `You classify if an email is likely a real bill/invoice we should ingest. 
+Fields:
+- from: ${fromAddr}
+- to: ${toAddr}
+- subject: ${subject}
+- snippet: ${bodySnippet}
+
+Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
+
+      const schema = {
+        type: 'object',
+        properties: {
+          is_invoice: { type: 'boolean' },
+          confidence: { type: 'number' },
+        },
+        required: ['is_invoice', 'confidence'],
+        additionalProperties: false,
+      } as any
+
+      const res = await requestLLM(llmSettings, { prompt, schema })
+      if (res.error) return false
+      const out: any = res.output
+      const isInvoice = Boolean(out.is_invoice)
+      const conf = Number(out.confidence || 0)
+      return isInvoice && conf >= 0.6
+    } catch (e) {
+      console.warn('[Email] LLM classify failed', e)
+      return false
+    }
+  }
+
+  private async processInvoiceEmail(parsed: any, envelope: any): Promise<string[] | null> {
     try {
       const user = await getCurrentUser(); // This assumes a single user system for now
-      if (!user) return;
+      if (!user) return null;
 
       // Process PDF attachments
       const pdfAttachments = parsed.attachments?.filter((att: any) => 
         att.contentType === 'application/pdf'
       ) || [];
 
+      const hashes: string[] = []
       for (const attachment of pdfAttachments) {
+        const hash = crypto.createHash('sha256').update(attachment.content).digest('hex')
+        hashes.push(hash)
         await this.processPdfAttachment(attachment, user.id, envelope);
       }
 
@@ -142,9 +297,10 @@ export class EmailIngestionService {
       if (parsed.text || parsed.html) {
         await this.saveEmailContent(parsed, user.id, envelope);
       }
-
+      return hashes
     } catch (error) {
       console.error('Error processing invoice email:', error);
+      return null
     }
   }
 

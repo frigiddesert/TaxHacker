@@ -1,5 +1,5 @@
 import config from "@/lib/config"
-import { getSelfHostedUser, getUserByEmail, getUserById, SELF_HOSTED_USER } from "@/models/users"
+import { getSelfHostedUser, getUserByEmail, getUserById, SELF_HOSTED_USER, getOrCreateCloudUser } from "@/models/users"
 import { User } from "@/prisma/client"
 import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
@@ -73,6 +73,24 @@ export async function getSession() {
   })
 }
 
+async function getProxyUserFromHeaders() {
+  if (!config.auth.trustProxyAuthHeaders) return null
+
+  const h = await headers()
+  // Header names are case-insensitive; Next provides a Headers object for get().
+  const email = h.get("Remote-Email") || h.get("remote-email")
+  const name = h.get("Remote-Name") || h.get("remote-name") || h.get("Remote-User") || undefined
+
+  if (!email) return null
+
+  // Upsert user using header identity
+  const user = await getOrCreateCloudUser(email, {
+    email: email.toLowerCase(),
+    name: name || email.split("@")[0],
+  })
+  return user
+}
+
 export async function getCurrentUser(): Promise<User> {
   if (config.selfHosted.isEnabled) {
     const user = await getSelfHostedUser()
@@ -83,7 +101,13 @@ export async function getCurrentUser(): Promise<User> {
     }
   }
 
-  // Try to return user from session
+  // Try proxy-authenticated user from Caddy/Authelia headers first (when enabled)
+  const proxyUser = await getProxyUserFromHeaders()
+  if (proxyUser) {
+    return proxyUser
+  }
+
+  // Try to return user from BetterAuth session
   const session = await getSession()
   if (session && session.user) {
     const user = await getUserById(session.user.id)

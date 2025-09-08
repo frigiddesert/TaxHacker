@@ -42,9 +42,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ file
 
     // Read file
     const fileBuffer = await fs.readFile(previewPath)
+    const body = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength) as ArrayBuffer
 
     // Return file with proper content type
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(body, {
       headers: {
         "Content-Type": contentType,
         "Content-Disposition": `inline; filename*=${encodeFilename(path.basename(previewPath))}`,

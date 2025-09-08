@@ -175,7 +175,8 @@ export async function GET(request: Request) {
       },
     })
 
-    return new NextResponse(zipContent, {
+    const zipArrayBuffer = zipContent.buffer.slice(zipContent.byteOffset, zipContent.byteOffset + zipContent.byteLength) as ArrayBuffer
+    return new NextResponse(zipArrayBuffer, {
       headers: {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="transactions.zip"`,

@@ -92,6 +92,22 @@ TaxHacker is a modern, AI-powered financial document management and transaction 
    ```
 4. **Both the app and poller will run, sharing the database and uploads volume.**
 
+### QuickBooks Integration (OAuth2)
+
+Set the following environment variables for QBO:
+
+- `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`
+- `QBO_REDIRECT_URI` (e.g. `https://bookkeeper.sandland.us/qb/callback`)
+- `QBO_ENV` (`sandbox` or `production`)
+- `QBO_WEBHOOK_VERIFIER` (for webhook signature verification)
+- Optional imports at startup: `QBO_COA_PATH`, `QBO_CLASSES_PATH` to import Chart of Accounts (CSV with columns A: Account No, B: Full Name) and Classes (text file, one class per line).
+
+Endpoints:
+- `/qb/connect` — start OAuth.
+- `/qb/callback` — OAuth redirect target (bypassed from auth proxy).
+- `/qb/webhook` — webhook receiver (bypassed from auth proxy).
+- `/health` — health check.
+
 ### Email Poller Setup Notes
 
 - Use the same uploads directory for both services by setting `UPLOAD_PATH=/app/data/uploads` and mounting `./data:/app/data` in docker-compose for the app and the poller.

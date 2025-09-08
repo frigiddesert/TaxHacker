@@ -156,6 +156,7 @@ Configure TaxHacker for your specific needs with these environment variables:
 | `BASE_URL` | No | Base URL for the application | `http://localhost:7331` |
 | `SELF_HOSTED_MODE` | No | Set to "true" for self-hosting: enables auto-login, custom API keys, and additional features | `true` |
 | `DISABLE_SIGNUP` | No | Disable new user registration on your instance | `false` |
+| `TRUST_PROXY_AUTH_HEADERS` | No | Trust `Remote-*` auth headers from reverse proxy (Authelia/Caddy). Use only when the app is not exposed directly. | `false` |
 | `BETTER_AUTH_SECRET` | Yes | Secret key for authentication (minimum 16 characters) | `your-secure-random-key` |
 
 You can also configure LLM provider settings in the application or via environment variables:
@@ -163,6 +164,10 @@ You can also configure LLM provider settings in the application or via environme
 - **OpenAI**: `OPENAI_MODEL_NAME` and `OPENAI_API_KEY`
 - **Google Gemini**: `GOOGLE_MODEL_NAME` and `GOOGLE_API_KEY`
 - **Mistral**: `MISTRAL_MODEL_NAME` and `MISTRAL_API_KEY`
+
+QuickBooks Online (OAuth2) env vars:
+- `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI`, `QBO_ENV` (`sandbox`/`production`), `QBO_WEBHOOK_VERIFIER`
+- Optional imports from files: `QBO_COA_PATH` (CSV: AccountNo,FullName), `QBO_CLASSES_PATH` (text: one class per line)
 
 ## ⌨️ Local Development
 

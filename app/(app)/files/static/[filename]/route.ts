@@ -22,8 +22,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ file
     }
 
     const fileBuffer = await fs.readFile(fullFilePath)
+    const body = fileBuffer.buffer.slice(fileBuffer.byteOffset, fileBuffer.byteOffset + fileBuffer.byteLength) as ArrayBuffer
 
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(body, {
       headers: {
         "Content-Type": lookup.lookup(filename) || "application/octet-stream",
       },

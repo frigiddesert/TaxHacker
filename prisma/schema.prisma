@@ -40,6 +40,8 @@ model User {
   sessions            Session[]
   appData             AppData[]
   progress            Progress[]
+  vendors             Vendor[]
+  emailIngestionLogs  EmailIngestionLog[]
 
   @@map("users")
 }
@@ -187,6 +189,8 @@ model Transaction {
   categoryCode          String?   @map("category_code")
   project               Project?  @relation(fields: [projectCode, userId], references: [code, userId])
   projectCode           String?   @map("project_code")
+  vendor                Vendor?   @relation(fields: [vendorId], references: [id])
+  vendorId              String?   @db.Uuid
   issuedAt              DateTime? @map("issued_at")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
@@ -195,11 +199,35 @@ model Transaction {
   @@index([userId])
   @@index([projectCode])
   @@index([categoryCode])
+  @@index([vendorId])
   @@index([issuedAt])
   @@index([name])
   @@index([merchant])
   @@index([total])
   @@map("transactions")
+}
+
+model Vendor {
+  id                 String       @id @default(uuid()) @db.Uuid
+  userId             String       @map("user_id") @db.Uuid
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String
+  paymentMethod      String
+  bankDetails        String?
+  contactEmail       String?
+  contactPhone       String?
+  notes              String?
+  isActive           Boolean      @default(true) @map("is_active")
+  defaultCategoryCode String?
+  defaultProjectCode String?
+  fromEmails         Json?        // ["billing@vendor.com", ...]
+  fromDomains        Json?        // ["vendor.com", ...]
+  subjectKeywords    Json?        // ["invoice", "bill", ...]
+  createdAt          DateTime     @default(now()) @map("created_at")
+  transactions       Transaction[]
+
+  @@index([userId])
+  @@map("vendors")
 }
 
 model Currency {
@@ -236,4 +264,25 @@ model Progress {
 
   @@index([userId])
   @@map("progress")
+}
+
+model EmailIngestionLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailbox         String
+  uidValidity     BigInt   @map("uid_validity")
+  uid             Int
+  messageId       String?  @map("message_id")
+  internalDate    DateTime? @map("internal_date")
+  from            String?
+  subject         String?
+  status          String
+  error           String?
+  attachmentHashes Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, mailbox, uidValidity, uid], map: "email_ingestion_unique")
+  @@index([userId])
+  @@map("email_ingestion_log")
 }
