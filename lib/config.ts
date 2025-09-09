@@ -27,6 +27,7 @@ const envSchema = z.object({
   EMAIL_INGESTION_PASSWORD: z.string().default(""),
   EMAIL_INGESTION_MAILBOX: z.string().default("INBOX"),
   EMAIL_INGESTION_POLLING_INTERVAL: z.string().default("300000"),
+  EMAIL_INGESTION_FIRST_EMAIL_DATE: z.string().default(""), // YYYY-MM-DD format
   TRUST_PROXY_AUTH_HEADERS: z.enum(["true", "false"]).default("false"),
   // QuickBooks Online
   QBO_CLIENT_ID: z.string().default(""),
@@ -112,6 +113,7 @@ const config = {
     password: env.EMAIL_INGESTION_PASSWORD,
     mailbox: env.EMAIL_INGESTION_MAILBOX,
     pollingInterval: parseInt(env.EMAIL_INGESTION_POLLING_INTERVAL),
+    firstEmailDate: env.EMAIL_INGESTION_FIRST_EMAIL_DATE,
   },
 } as const
 

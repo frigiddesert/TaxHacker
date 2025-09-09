@@ -10,10 +10,10 @@ import { FormSelectCategory } from "@/components/forms/select-category"
 import { FormSelectCurrency } from "@/components/forms/select-currency"
 import { FormSelectProject } from "@/components/forms/select-project"
 import { FormSelectType } from "@/components/forms/select-type"
-import { FormInput, FormTextarea } from "@/components/forms/simple"
+import { FormInput, FormTextarea, FormSelect } from "@/components/forms/simple"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Category, Currency, Field, File, Project } from "@/prisma/client"
+import { Category, Currency, Field, File, Project, Vendor } from "@/prisma/client"
 import { format } from "date-fns"
 import { ArrowDownToLine, Brain, Loader2, Trash2 } from "lucide-react"
 import { startTransition, useActionState, useMemo, useState } from "react"
@@ -25,6 +25,7 @@ export default function AnalyzeForm({
   currencies,
   fields,
   settings,
+  vendors,
 }: {
   file: File
   categories: Category[]
@@ -32,6 +33,7 @@ export default function AnalyzeForm({
   currencies: Currency[]
   fields: Field[]
   settings: Record<string, string>
+  vendors?: Vendor[]
 }) {
   const { showNotification } = useNotification()
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -95,6 +97,17 @@ export default function AnalyzeForm({
     }
   }, [file.filename, settings, extraFields, file.cachedParseResult])
   const [formData, setFormData] = useState(initialFormState)
+
+  // Check if merchant is a known vendor
+  const isUnknownVendor = useMemo(() => {
+    if (!formData.merchant || !vendors || vendors.length === 0) return false
+    
+    const merchantName = formData.merchant.toLowerCase().trim()
+    return !vendors.some(vendor => 
+      vendor.name.toLowerCase().includes(merchantName) ||
+      merchantName.includes(vendor.name.toLowerCase())
+    )
+  }, [formData.merchant, vendors])
 
   async function saveAsTransaction(formData: FormData) {
     setSaveError("")
@@ -176,14 +189,22 @@ export default function AnalyzeForm({
           required={fieldMap.name.isRequired}
         />
 
-        <FormInput
-          title={fieldMap.merchant.name}
-          name="merchant"
-          value={formData.merchant}
-          onChange={(e) => setFormData((prev) => ({ ...prev, merchant: e.target.value }))}
-          hideIfEmpty={!fieldMap.merchant.isVisibleInAnalysis}
-          required={fieldMap.merchant.isRequired}
-        />
+        <div className="relative">
+          <FormInput
+            title={fieldMap.merchant.name}
+            name="merchant"
+            value={formData.merchant}
+            onChange={(e) => setFormData((prev) => ({ ...prev, merchant: e.target.value }))}
+            hideIfEmpty={!fieldMap.merchant.isVisibleInAnalysis}
+            required={fieldMap.merchant.isRequired}
+            className={isUnknownVendor ? "border-orange-400 bg-orange-50" : ""}
+          />
+          {isUnknownVendor && formData.merchant && (
+            <div className="absolute -top-1 -right-1 bg-orange-500 text-white text-xs px-2 py-1 rounded-full shadow-sm">
+              Unknown Vendor
+            </div>
+          )}
+        </div>
 
         <FormInput
           title={fieldMap.description.name}
@@ -289,18 +310,39 @@ export default function AnalyzeForm({
           required={fieldMap.note.isRequired}
         />
 
-        {extraFields.map((field) => (
-          <FormInput
-            key={field.code}
-            type="text"
-            title={field.name}
-            name={field.code}
-            value={formData[field.code as keyof typeof formData]}
-            onChange={(e) => setFormData((prev) => ({ ...prev, [field.code]: e.target.value }))}
-            hideIfEmpty={!field.isVisibleInAnalysis}
-            required={field.isRequired}
-          />
-        ))}
+        {extraFields.map((field) => {
+          if (field.type === "select" && field.options && (field.options as any).choices) {
+            const choices = (field.options as any).choices as string[]
+            const items = choices.map(choice => ({ code: choice, name: choice }))
+            
+            return (
+              <FormSelect
+                key={field.code}
+                title={field.name}
+                name={field.code}
+                value={formData[field.code as keyof typeof formData] as string}
+                onValueChange={(value) => setFormData((prev) => ({ ...prev, [field.code]: value }))}
+                items={items}
+                placeholder={`Select ${field.name}`}
+                hideIfEmpty={!field.isVisibleInAnalysis}
+                isRequired={field.isRequired}
+              />
+            )
+          }
+          
+          return (
+            <FormInput
+              key={field.code}
+              type="text"
+              title={field.name}
+              name={field.code}
+              value={formData[field.code as keyof typeof formData]}
+              onChange={(e) => setFormData((prev) => ({ ...prev, [field.code]: e.target.value }))}
+              hideIfEmpty={!field.isVisibleInAnalysis}
+              required={field.isRequired}
+            />
+          )
+        })}
 
         {formData.items && formData.items.length > 0 && (
           <ToolWindow title="Detected items">

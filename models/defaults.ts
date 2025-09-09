@@ -28,13 +28,13 @@ export const DEFAULT_SETTINGS = [
   },
   {
     code: "default_category",
-    name: "Default Category",
+    name: "Default Account",
     description: "",
     value: "other",
   },
   {
     code: "default_project",
-    name: "Default Project",
+    name: "Default Class",
     description: "",
     value: "personal",
   },
@@ -326,9 +326,9 @@ export const DEFAULT_FIELDS = [
   },
   {
     code: "projectCode",
-    name: "Project",
+    name: "Class",
     type: "string",
-    llm_prompt: "project code, one of: {projects.code}",
+    llm_prompt: "class code, one of: {projects.code}",
     isVisibleInList: true,
     isVisibleInAnalysis: true,
     isRequired: false,
@@ -336,9 +336,9 @@ export const DEFAULT_FIELDS = [
   },
   {
     code: "categoryCode",
-    name: "Category",
+    name: "Account",
     type: "string",
-    llm_prompt: "category code, one of: {categories.code}",
+    llm_prompt: "account code, one of: {categories.code}",
     isVisibleInList: true,
     isVisibleInAnalysis: true,
     isRequired: false,
@@ -444,6 +444,17 @@ export const DEFAULT_FIELDS = [
     isRequired: false,
     isExtra: false,
   },
+  {
+    code: "payType",
+    name: "Payment Type",
+    type: "select",
+    llm_prompt: "Determine the payment method type based on the vendor and invoice content. ACH for bank transfers, BillPay for online bill payments, Auto for automatic/recurring charges, Manual for other payment methods.",
+    isVisibleInList: true,
+    isVisibleInAnalysis: true,
+    isRequired: false,
+    isExtra: true,
+    options: { choices: ["ACH", "BillPay", "Auto", "Manual"] },
+  },
 ]
 
 export async function createUserDefaults(userId: string) {
@@ -482,6 +493,7 @@ export async function createUserDefaults(userId: string) {
         name: field.name,
         type: field.type,
         llm_prompt: field.llm_prompt,
+        options: (field as any).options || null,
         isVisibleInList: field.isVisibleInList,
         isVisibleInAnalysis: field.isVisibleInAnalysis,
         isRequired: field.isRequired,

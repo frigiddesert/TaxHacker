@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    container_name: taxhacker_app
+    environment:
+      - NODE_ENV=production
+      - BASE_URL=https://bookkeeper.sandland.us
+      - TRUST_PROXY_AUTH_HEADERS=true
+      - UPLOAD_PATH=/app/data/uploads
+    env_file:
+      - .env.production
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - default
+      - shared
+
+networks:
+  default:
+    name: taxhacker_default
+  shared:
+    external: true
+    name: taxhacker_shared

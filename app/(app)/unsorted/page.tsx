@@ -13,7 +13,9 @@ import { getFields } from "@/models/fields"
 import { getUnsortedFiles } from "@/models/files"
 import { getProjects } from "@/models/projects"
 import { getSettings } from "@/models/settings"
+import { getVendors } from "@/models/vendors"
 import { FileText, PartyPopper, Settings, Upload } from "lucide-react"
+import { ManualEmailCheckButton } from "@/components/email/manual-check-button"
 import { Metadata } from "next"
 import Link from "next/link"
 
@@ -30,12 +32,16 @@ export default async function UnsortedPage() {
   const currencies = await getCurrencies(user.id)
   const fields = await getFields(user.id)
   const settings = await getSettings(user.id)
+  const vendors = await getVendors(user.id)
 
   return (
     <>
       <header className="flex items-center justify-between">
         <h2 className="text-3xl font-bold tracking-tight">You have {files.length} unsorted files</h2>
-        {files.length > 1 && <AnalyzeAllButton />}
+        <div className="flex items-center gap-4">
+          <ManualEmailCheckButton />
+          {files.length > 1 && <AnalyzeAllButton />}
+        </div>
       </header>
 
       {config.selfHosted.isEnabled &&
@@ -79,6 +85,7 @@ export default async function UnsortedPage() {
                 currencies={currencies}
                 fields={fields}
                 settings={settings}
+                vendors={vendors}
               />
             </div>
           </Card>

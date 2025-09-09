@@ -5,12 +5,23 @@ import { File } from "@/prisma/client"
 import Image from "next/image"
 import Link from "next/link"
 import { useState } from "react"
+import { EmailPreview } from "./email-preview"
 
 export function FilePreview({ file }: { file: File }) {
   const [isEnlarged, setIsEnlarged] = useState(false)
 
   const fileSize =
     file.metadata && typeof file.metadata === "object" && "size" in file.metadata ? Number(file.metadata.size) : 0
+  
+  // Check if this is an email file
+  const isEmailFile = file.metadata && 
+    typeof file.metadata === "object" && 
+    "source" in file.metadata && 
+    file.metadata.source === "email"
+
+  if (isEmailFile) {
+    return <EmailPreview file={file} />
+  }
 
   return (
     <>

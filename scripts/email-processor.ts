@@ -28,7 +28,8 @@ const emailConfig = {
     pass: process.env.IMAP_PASS || process.env.EMAIL_INGESTION_PASSWORD || ''
   },
   mailbox: process.env.IMAP_MAILBOX || process.env.EMAIL_INGESTION_MAILBOX || 'INBOX',
-  pollingInterval: parseInt(process.env.IMAP_POLLING_INTERVAL || process.env.EMAIL_INGESTION_POLLING_INTERVAL || '300000') // 5 minutes default
+  pollingInterval: parseInt(process.env.IMAP_POLLING_INTERVAL || process.env.EMAIL_INGESTION_POLLING_INTERVAL || '300000'), // 5 minutes default
+  firstEmailDate: process.env.EMAIL_INGESTION_FIRST_EMAIL_DATE || '' // YYYY-MM-DD format
 };
 
 // Email ingestion service class
@@ -48,6 +49,27 @@ class EmailIngestionService {
     } catch (error) {
       console.error('Failed to start email ingestion service:', error);
       throw error;
+    }
+  }
+
+  async checkOnce(): Promise<void> {
+    try {
+      this.client = new ImapFlow(emailConfig);
+      await this.client.connect();
+      console.log('Email ingestion service connected for one-time check');
+
+      // Check emails once without setting up polling
+      await this.pollEmails();
+      console.log('One-time email check completed');
+    } catch (error) {
+      console.error('Failed to perform one-time email check:', error);
+      throw error;
+    } finally {
+      // Always disconnect after one-time check
+      if (this.client) {
+        await this.client.logout();
+        this.client = null;
+      }
     }
   }
 
@@ -88,62 +110,94 @@ class EmailIngestionService {
         if (endUid < startUid) return;
         const range = `${startUid}:${endUid}`;
 
+        let searchCriteria = range;
+        
+        // Apply date filtering if firstEmailDate is configured
+        if (emailConfig.firstEmailDate) {
+          try {
+            const firstDate = new Date(emailConfig.firstEmailDate);
+            const messages = await this.client.fetch(range, { uid: true, envelope: true, source: true });
+            
+            // Filter messages manually by date since IMAP date search can be unreliable
+            const filteredMessages: any[] = [];
+            for await (const message of messages) {
+              const messageDate = message.envelope?.date ? new Date(message.envelope.date) : null;
+              if (messageDate && messageDate >= firstDate) {
+                filteredMessages.push(message);
+              }
+            }
+            
+            // Process filtered messages
+            for (const message of filteredMessages) {
+              await this.processMessage(message, user, uidValidity);
+            }
+            return;
+          } catch (dateError) {
+            console.error('Invalid firstEmailDate format, processing all messages:', dateError);
+          }
+        }
+
+        // Fallback: process all messages if no date filter
         const messages = await this.client.fetch(range, { uid: true, envelope: true, source: true });
 
         for await (const message of messages) {
-          const uid: number = message.uid;
-          // insert log row; skip if duplicate
-          try {
-            await prisma.emailIngestionLog.create({
-              data: {
-                userId: user.id,
-                mailbox: emailConfig.mailbox,
-                uidValidity,
-                uid,
-                messageId: message.envelope?.messageId || null,
-                internalDate: message.envelope?.date || null,
-                from: message.envelope?.from?.map((a: any) => a.address || a.name).join(', '),
-                subject: message.envelope?.subject || '',
-                status: 'pending',
-              },
-            });
-          } catch { /* duplicate */ }
-
-          try {
-            if (!message.source) throw new Error('Empty message source');
-            const hashes = await this.processEmail(message.source as Buffer, message.envelope);
-            await prisma.emailIngestionLog.update({
-              where: {
-                userId_mailbox_uidValidity_uid: {
-                  userId: user.id,
-                  mailbox: emailConfig.mailbox,
-                  uidValidity,
-                  uid,
-                },
-              },
-              data: { status: 'processed', attachmentHashes: hashes || [] },
-            });
-            console.log('Successfully processed email');
-          } catch (error) {
-            console.error('Failed to process email:', error);
-            await prisma.emailIngestionLog.update({
-              where: {
-                userId_mailbox_uidValidity_uid: {
-                  userId: user.id,
-                  mailbox: emailConfig.mailbox,
-                  uidValidity,
-                  uid,
-                },
-              },
-              data: { status: 'error', error: error instanceof Error ? error.message : String(error) },
-            });
-          }
+          await this.processMessage(message, user, uidValidity);
         }
       } finally {
         lock.release();
       }
     } catch (error) {
       console.error('Error polling emails:', error);
+    }
+  }
+
+  private async processMessage(message: any, user: any, uidValidity: bigint): Promise<void> {
+    const uid: number = message.uid;
+    // insert log row; skip if duplicate
+    try {
+      await prisma.emailIngestionLog.create({
+        data: {
+          userId: user.id,
+          mailbox: emailConfig.mailbox,
+          uidValidity,
+          uid,
+          messageId: message.envelope?.messageId || null,
+          internalDate: message.envelope?.date || null,
+          from: message.envelope?.from?.map((a: any) => a.address || a.name).join(', '),
+          subject: message.envelope?.subject || '',
+          status: 'pending',
+        },
+      });
+    } catch { /* duplicate */ }
+
+    try {
+      if (!message.source) throw new Error('Empty message source');
+      const hashes = await this.processEmail(message.source as Buffer, message.envelope);
+      await prisma.emailIngestionLog.update({
+        where: {
+          userId_mailbox_uidValidity_uid: {
+            userId: user.id,
+            mailbox: emailConfig.mailbox,
+            uidValidity,
+            uid,
+          },
+        },
+        data: { status: 'processed', attachmentHashes: hashes || [] },
+      });
+      console.log('Successfully processed email');
+    } catch (error) {
+      console.error('Failed to process email:', error);
+      await prisma.emailIngestionLog.update({
+        where: {
+          userId_mailbox_uidValidity_uid: {
+            userId: user.id,
+            mailbox: emailConfig.mailbox,
+            uidValidity,
+            uid,
+          },
+        },
+        data: { status: 'error', error: error instanceof Error ? error.message : String(error) },
+      });
     }
   }
 
