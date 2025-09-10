@@ -3,10 +3,10 @@ services:
     image: ghcr.io/vas3k/taxhacker:latest
     ports:
       - "7331:7331"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
-      - SELF_HOSTED_MODE=true
-      - UPLOAD_PATH=/app/data/uploads
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/taxhacker
     volumes:
       - ./data:/app/data
@@ -34,15 +34,20 @@ services:
 
   postgres:
     image: postgres:17-alpine
+    ports:
+      - "5435:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=taxhacker
     volumes:
-      - ./pgdata:/var/lib/postgresql/data
+      - taxhacker_dev_pgdata:/var/lib/postgresql/data
     restart: unless-stopped
     logging:
       driver: "local"
       options:
         max-size: "100M"
         max-file: "3"
+
+volumes:
+  taxhacker_dev_pgdata:

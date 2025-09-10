@@ -13,11 +13,12 @@ export function FilePreview({ file }: { file: File }) {
   const fileSize =
     file.metadata && typeof file.metadata === "object" && "size" in file.metadata ? Number(file.metadata.size) : 0
   
-  // Check if this is an email file
+  // Check if this is an email file (text/plain only, not PDF attachments)
   const isEmailFile = file.metadata && 
     typeof file.metadata === "object" && 
     "source" in file.metadata && 
-    file.metadata.source === "email"
+    file.metadata.source === "email" &&
+    file.mimetype === "text/plain"
 
   if (isEmailFile) {
     return <EmailPreview file={file} />
