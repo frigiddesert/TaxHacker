@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db'
 import { EmailIngestionLog, User } from '@/prisma/client'
-import { getUserUploadsDirectory } from '@/lib/upload'
+import { getUserUploadsDirectory } from '@/lib/files'
 import path from 'path'
 import fs from 'fs/promises'
 
@@ -8,7 +8,7 @@ import fs from 'fs/promises'
  * Process an email from the triage system to unsorted files
  */
 export async function processEmailToUnsorted(emailLog: EmailIngestionLog, user: User) {
-  const uploadsDir = getUserUploadsDirectory(user.email)
+  const uploadsDir = getUserUploadsDirectory(user)
   const unsortedDir = path.join(uploadsDir, 'unsorted')
   
   // Ensure unsorted directory exists

@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { spawn } from 'child_process'
 import path from 'path'
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await getCurrentUser()
     if (!user) {
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Run the email processor script
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
       const scriptPath = path.join(process.cwd(), 'scripts', 'email-processor.ts')
       const child = spawn('npx', ['ts-node', scriptPath], {
         cwd: process.cwd(),
