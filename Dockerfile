@@ -19,6 +19,9 @@ COPY prisma ./prisma/
 # Install dependencies
 RUN npm ci
 
+# Generate Prisma client
+RUN npx prisma generate
+
 # Copy source code
 COPY . .
 

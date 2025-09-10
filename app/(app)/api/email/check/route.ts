@@ -1,5 +1,4 @@
 import { getCurrentUser } from "@/lib/auth"
-import EmailIngestionService from "@/scripts/email-processor"
 import { NextResponse } from "next/server"
 
 export async function POST() {
@@ -7,7 +6,8 @@ export async function POST() {
     const user = await getCurrentUser()
     console.log(`Manual email check initiated by user ${user.id}`)
 
-    // Create and run the email service once
+    // Dynamically import the email service to avoid build-time issues
+    const { default: EmailIngestionService } = await import("@/scripts/email-processor")
     const emailService = new EmailIngestionService()
     
     try {

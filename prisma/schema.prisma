@@ -192,6 +192,7 @@ model Transaction {
   vendor                Vendor?   @relation(fields: [vendorId], references: [id])
   vendorId              String?   @db.Uuid
   issuedAt              DateTime? @map("issued_at")
+  payOnDate             DateTime? @map("pay_on_date")
   createdAt             DateTime  @default(now()) @map("created_at")
   updatedAt             DateTime  @updatedAt @map("updated_at")
   text                  String?

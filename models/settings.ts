@@ -15,22 +15,22 @@ export function getLLMSettings(settings: SettingsMap) {
     if (provider === "openai") {
       return {
         provider: provider as LLMProvider,
-        apiKey: settings.openai_api_key || "",
-        model: settings.openai_model_name || PROVIDERS[0]['defaultModelName'],
+        apiKey: process.env.OPENAI_API_KEY || settings.openai_api_key || "",
+        model: process.env.OPENAI_MODEL_NAME || settings.openai_model_name || PROVIDERS[0]['defaultModelName'],
       }
     }
     if (provider === "google") {
       return {
         provider: provider as LLMProvider,
-        apiKey: settings.google_api_key || "",
-        model: settings.google_model_name || PROVIDERS[1]['defaultModelName'],
+        apiKey: process.env.GOOGLE_API_KEY || settings.google_api_key || "",
+        model: process.env.GOOGLE_MODEL_NAME || settings.google_model_name || PROVIDERS[1]['defaultModelName'],
       }
     }
     if (provider === "mistral") {
       return {
         provider: provider as LLMProvider,
-        apiKey: settings.mistral_api_key || "",
-        model: settings.mistral_model_name || PROVIDERS[2]['defaultModelName'],
+        apiKey: process.env.MISTRAL_API_KEY || settings.mistral_api_key || "",
+        model: process.env.MISTRAL_MODEL_NAME || settings.mistral_model_name || PROVIDERS[2]['defaultModelName'],
       }
     }
     return null

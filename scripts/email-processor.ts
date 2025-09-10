@@ -3,7 +3,8 @@ import { simpleParser } from 'mailparser';
 import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { createHash, randomUUID } from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
+import { getUserUploadsDirectory, safePathJoin } from '@/lib/files';
 import { config } from 'dotenv';
 
 // Load environment variables: prefer local .env, else fall back to root .env files
@@ -15,8 +16,10 @@ if (!process.env.IMAP_HOST && !process.env.EMAIL_INGESTION_HOST) {
   try { config({ path: path.resolve(__dirname, '../.env') }) } catch {}
 }
 
-// Initialize Prisma client
-const prisma = new PrismaClient();
+// Use the shared prisma client
+function getPrismaClient() {
+  return prisma;
+}
 
 // Email configuration from environment variables
 const emailConfig = {
@@ -97,51 +100,75 @@ class EmailIngestionService {
         const uidValidity = BigInt(mb.uidValidity ?? 0);
         const uidNext = mb.uidNext || 1;
 
-        const user = await prisma.user.findFirst();
+        const user = await getPrismaClient().user.findFirst();
         if (!user) { console.error('No user found in database'); return; }
 
-        const last = await prisma.emailIngestionLog.aggregate({
+        // Get the last processed UID for this mailbox
+        const last = await getPrismaClient().emailIngestionLog.aggregate({
           _max: { uid: true },
           where: { userId: user.id, mailbox: emailConfig.mailbox, uidValidity },
         });
         const lastUid = last._max.uid ?? 0;
-        const startUid = lastUid + 1;
-        const endUid = Math.max(startUid, uidNext - 1);
-        if (endUid < startUid) return;
-        const range = `${startUid}:${endUid}`;
 
-        let searchCriteria = range;
+        // Use IMAP search instead of UID ranges to avoid invalid messageset errors
+        let searchQuery: any;
         
-        // Apply date filtering if firstEmailDate is configured
         if (emailConfig.firstEmailDate) {
+          // Search by date if configured
           try {
             const firstDate = new Date(emailConfig.firstEmailDate);
-            const messages = await this.client.fetch(range, { uid: true, envelope: true, source: true });
-            
-            // Filter messages manually by date since IMAP date search can be unreliable
-            const filteredMessages: any[] = [];
-            for await (const message of messages) {
-              const messageDate = message.envelope?.date ? new Date(message.envelope.date) : null;
-              if (messageDate && messageDate >= firstDate) {
-                filteredMessages.push(message);
-              }
-            }
-            
-            // Process filtered messages
-            for (const message of filteredMessages) {
-              await this.processMessage(message, user, uidValidity);
-            }
-            return;
+            const dateString = firstDate.toISOString().split('T')[0].replace(/-/g, '-');
+            searchQuery = { since: firstDate };
           } catch (dateError) {
-            console.error('Invalid firstEmailDate format, processing all messages:', dateError);
+            console.error('Invalid firstEmailDate format:', dateError);
+            searchQuery = { all: true };
           }
+        } else if (lastUid > 0) {
+          // Search for UIDs greater than last processed
+          searchQuery = { uid: `${lastUid + 1}:*` };
+        } else {
+          // First run - get recent emails (last 30 days)
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          searchQuery = { since: thirtyDaysAgo };
         }
 
-        // Fallback: process all messages if no date filter
-        const messages = await this.client.fetch(range, { uid: true, envelope: true, source: true });
-
-        for await (const message of messages) {
-          await this.processMessage(message, user, uidValidity);
+        console.log('Searching for emails with criteria:', searchQuery);
+        
+        try {
+          const searchResults = await this.client.search(searchQuery);
+          console.log(`Found ${searchResults.length} emails to process`);
+          
+          if (searchResults.length === 0) {
+            console.log('No new emails to process');
+            return;
+          }
+          
+          // Fetch messages in smaller batches to avoid issues
+          const batchSize = 10;
+          for (let i = 0; i < searchResults.length; i += batchSize) {
+            const batch = searchResults.slice(i, i + batchSize);
+            const uidList = batch.join(',');
+            
+            const messages = await this.client.fetch(uidList, { uid: true, envelope: true, source: true });
+            
+            for await (const message of messages) {
+              // Skip if already processed
+              if (message.uid <= lastUid) continue;
+              
+              // Apply date filtering if configured
+              if (emailConfig.firstEmailDate) {
+                const firstDate = new Date(emailConfig.firstEmailDate);
+                const messageDate = message.envelope?.date ? new Date(message.envelope.date) : null;
+                if (!messageDate || messageDate < firstDate) continue;
+              }
+              
+              await this.processMessage(message, user, uidValidity);
+            }
+          }
+        } catch (searchError) {
+          console.error('Error searching emails:', searchError);
+          return;
         }
       } finally {
         lock.release();
@@ -155,7 +182,7 @@ class EmailIngestionService {
     const uid: number = message.uid;
     // insert log row; skip if duplicate
     try {
-      await prisma.emailIngestionLog.create({
+      await getPrismaClient().emailIngestionLog.create({
         data: {
           userId: user.id,
           mailbox: emailConfig.mailbox,
@@ -172,8 +199,9 @@ class EmailIngestionService {
 
     try {
       if (!message.source) throw new Error('Empty message source');
-      const hashes = await this.processEmail(message.source as Buffer, message.envelope);
-      await prisma.emailIngestionLog.update({
+      const emailLogData = { uid, uidValidity, mailbox: emailConfig.mailbox };
+      const hashes = await this.processEmail(message.source as Buffer, message.envelope, emailLogData);
+      await getPrismaClient().emailIngestionLog.update({
         where: {
           userId_mailbox_uidValidity_uid: {
             userId: user.id,
@@ -187,7 +215,7 @@ class EmailIngestionService {
       console.log('Successfully processed email');
     } catch (error) {
       console.error('Failed to process email:', error);
-      await prisma.emailIngestionLog.update({
+      await getPrismaClient().emailIngestionLog.update({
         where: {
           userId_mailbox_uidValidity_uid: {
             userId: user.id,
@@ -201,12 +229,12 @@ class EmailIngestionService {
     }
   }
 
-  private async processEmail(emailSource: Buffer, envelope: any): Promise<string[] | null> {
+  private async processEmail(emailSource: Buffer, envelope: any, emailLogData: any): Promise<string[] | null> {
     try {
       const parsed = await simpleParser(emailSource);
       const hashes = await this.getHashesIfAllowed(parsed)
       if (!hashes) { console.log('Skipping email: not a known vendor invoice'); return null }
-      await this.processInvoiceEmail(parsed, envelope);
+      await this.processInvoiceEmail(parsed, envelope, emailLogData);
       return hashes
     } catch (error) {
       console.error('Error parsing email:', error);
@@ -217,7 +245,7 @@ class EmailIngestionService {
   private async getHashesIfAllowed(parsed: any): Promise<string[] | null> {
     const subject = parsed.subject?.toLowerCase() || '';
     const body = parsed.text?.toLowerCase() || '';
-    const html = parsed.html?.toLowerCase() || '';
+    const html = (parsed.html ? String(parsed.html).toLowerCase() : '') || '';
 
     const invoiceKeywords = [
       'invoice', 'bill', 'payment', 'receipt', 'statement',
@@ -231,9 +259,9 @@ class EmailIngestionService {
 
     // Known vendor match from DB
     try {
-      const user = await prisma.user.findFirst()
+      const user = await getPrismaClient().user.findFirst()
       if (!user) return null
-      const vendors = await prisma.vendor.findMany({ where: { userId: user.id, isActive: true } })
+      const vendors = await getPrismaClient().vendor.findMany({ where: { userId: user.id, isActive: true } })
       const fromAddrs: string[] = []
       const from = parsed.from?.value || []
       for (const a of from) {
@@ -256,10 +284,10 @@ class EmailIngestionService {
     return hasInvoiceKeyword && hasPdfAttachment ? pdfs.map((p: any) => createHash('sha256').update(p.content).digest('hex')) : null;
   }
 
-  private async processInvoiceEmail(parsed: any, envelope: any): Promise<void> {
+  private async processInvoiceEmail(parsed: any, envelope: any, emailLogData: any): Promise<void> {
     try {
       // Get the first user (assuming single user system for now)
-      const user = await prisma.user.findFirst();
+      const user = await getPrismaClient().user.findFirst();
       if (!user) {
         console.error('No user found in database');
         return;
@@ -271,12 +299,14 @@ class EmailIngestionService {
       ) || [];
 
       for (const attachment of pdfAttachments) {
-        await this.processPdfAttachment(attachment, user.id, envelope);
+        await this.processPdfAttachment(attachment, user.id, envelope, emailLogData);
       }
 
-      // Also save the email body as a text file for analysis
-      if (parsed.text || parsed.html) {
-        await this.saveEmailContent(parsed, user.id, envelope);
+      // Only save the email body as a text file if there are no PDF attachments
+      // This ensures PDF attachments get the full TaxHacker treatment while
+      // text-only emails are still processed
+      if ((parsed.text || parsed.html) && pdfAttachments.length === 0) {
+        await this.saveEmailContent(parsed, user.id, envelope, emailLogData);
       }
 
     } catch (error) {
@@ -284,30 +314,41 @@ class EmailIngestionService {
     }
   }
 
-  private async processPdfAttachment(attachment: any, userId: string, envelope: any): Promise<void> {
+  private async processPdfAttachment(attachment: any, userId: string, envelope: any, emailLogData: any): Promise<void> {
     const fileUuid = randomUUID();
     const filename = attachment.filename || `invoice_${Date.now()}.pdf`;
     
+    // Get the user to build correct paths
+    const user = await getPrismaClient().user.findUnique({ where: { id: userId } });
+    if (!user) throw new Error('User not found');
+    
+    // Use the same path structure as the main application
+    const relativePath = `unsorted/${fileUuid.substring(0, 2)}/${fileUuid.substring(2, 4)}/${fileUuid}.pdf`;
+    
     // Create file record in database first to get the path
-    const fileRecord = await prisma.file.create({
+    const fileRecord = await getPrismaClient().file.create({
       data: {
         id: fileUuid,
         userId: userId,
         filename: filename,
-        path: `unsorted/${fileUuid.substring(0, 2)}/${fileUuid.substring(2, 4)}/${fileUuid}.pdf`,
+        path: relativePath,
         mimetype: 'application/pdf',
         metadata: {
           source: 'email',
           from: envelope.from?.[0]?.address,
           subject: envelope.subject,
           receivedDate: new Date().toISOString(),
-          size: attachment.content.length
+          size: attachment.content.length,
+          emailUid: emailLogData.uid,
+          emailUidValidity: emailLogData.uidValidity,
+          emailMailbox: emailLogData.mailbox
         }
       }
     });
 
-    // Save PDF file to the file system
-    const fullFilePath = path.join(process.env.UPLOAD_PATH || process.env.UPLOADS_DIR || './uploads', fileRecord.path);
+    // Save PDF file to the file system using proper user directory structure
+    const userUploadsDirectory = getUserUploadsDirectory(user);
+    const fullFilePath = safePathJoin(userUploadsDirectory, relativePath);
     
     // Create directory if it doesn't exist
     await mkdir(path.dirname(fullFilePath), { recursive: true });
@@ -319,36 +360,47 @@ class EmailIngestionService {
     
     // Mark file for AI processing by setting cachedParseResult to null
     // This will trigger the AI analysis in the main application
-    await prisma.file.update({
+    await getPrismaClient().file.update({
       where: { id: fileUuid },
       data: { cachedParseResult: null }
     });
   }
 
-  private async saveEmailContent(parsed: any, userId: string, envelope: any): Promise<void> {
+  private async saveEmailContent(parsed: any, userId: string, envelope: any, emailLogData: any): Promise<void> {
     const fileUuid = randomUUID();
     const filename = `email_${Date.now()}.txt`;
     
+    // Get the user to build correct paths
+    const user = await getPrismaClient().user.findUnique({ where: { id: userId } });
+    if (!user) throw new Error('User not found');
+    
+    // Use the same path structure as the main application
+    const relativePath = `unsorted/${fileUuid.substring(0, 2)}/${fileUuid.substring(2, 4)}/${fileUuid}.txt`;
+    
     // Create file record in database first to get the path
-    const fileRecord = await prisma.file.create({
+    const fileRecord = await getPrismaClient().file.create({
       data: {
         id: fileUuid,
         userId: userId,
         filename: filename,
-        path: `unsorted/${fileUuid.substring(0, 2)}/${fileUuid.substring(2, 4)}/${fileUuid}.txt`,
+        path: relativePath,
         mimetype: 'text/plain',
         metadata: {
           source: 'email',
           from: envelope.from?.[0]?.address,
           subject: envelope.subject,
           receivedDate: new Date().toISOString(),
-          size: (parsed.text || parsed.html)?.length || 0
+          size: (parsed.text || parsed.html)?.length || 0,
+          emailUid: emailLogData.uid,
+          emailUidValidity: emailLogData.uidValidity,
+          emailMailbox: emailLogData.mailbox
         }
       }
     });
 
-    // Save email content to the file system
-    const fullFilePath = path.join(process.env.UPLOAD_PATH || process.env.UPLOADS_DIR || './uploads', fileRecord.path);
+    // Save email content to the file system using proper user directory structure
+    const userUploadsDirectory = getUserUploadsDirectory(user);
+    const fullFilePath = safePathJoin(userUploadsDirectory, relativePath);
     
     // Create directory if it doesn't exist
     await mkdir(path.dirname(fullFilePath), { recursive: true });
@@ -366,10 +418,46 @@ ${parsed.text || parsed.html}`;
     
     // Mark file for AI processing by setting cachedParseResult to null
     // This will trigger the AI analysis in the main application
-    await prisma.file.update({
+    await getPrismaClient().file.update({
       where: { id: fileUuid },
       data: { cachedParseResult: null }
     });
+  }
+
+  // Function to move processed email to "Processed by Accountant" folder
+  async moveEmailToProcessedFolder(emailUid: number, emailUidValidity: bigint, emailMailbox: string): Promise<void> {
+    try {
+      const client = new ImapFlow(emailConfig);
+      await client.connect();
+      console.log('Connected to IMAP server for email moving');
+
+      // Ensure the "Processed by Accountant" folder exists
+      const processedFolderName = 'Processed by Accountant';
+      
+      try {
+        await client.mailboxCreate(processedFolderName);
+        console.log(`Created folder: ${processedFolderName}`);
+      } catch (error) {
+        // Folder might already exist, that's okay
+        console.log(`Folder ${processedFolderName} already exists or couldn't be created`);
+      }
+
+      // Select the source mailbox
+      const lock = await client.getMailboxLock(emailMailbox);
+      
+      try {
+        // Move the email by UID
+        await client.messageMove(emailUid, processedFolderName, { uid: true });
+        console.log(`Moved email UID ${emailUid} to ${processedFolderName}`);
+      } finally {
+        lock.release();
+      }
+
+      await client.logout();
+    } catch (error) {
+      console.error('Failed to move email to processed folder:', error);
+      // Don't throw - this is not critical to the main workflow
+    }
   }
 }
 
@@ -392,7 +480,6 @@ async function main() {
   const shutdown = async () => {
     console.log('Shutting down email processor...');
     await emailService.stop();
-    await prisma.$disconnect();
     process.exit(0);
   };
 
@@ -414,3 +501,9 @@ if (require.main === module) {
 }
 
 export default EmailIngestionService;
+
+// Export helper function for moving processed emails
+export async function moveProcessedEmailToFolder(emailUid: number, emailUidValidity: bigint, emailMailbox: string): Promise<void> {
+  const emailService = new EmailIngestionService();
+  await emailService.moveEmailToProcessedFolder(emailUid, emailUidValidity, emailMailbox);
+}

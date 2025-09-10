@@ -67,6 +67,7 @@ export default function AnalyzeForm({
       categoryCode: settings.default_category,
       projectCode: settings.default_project,
       issuedAt: "",
+      payOnDate: "",
       note: "",
       text: "",
       items: [],
@@ -90,9 +91,22 @@ export default function AnalyzeForm({
         )
       : {}
 
+    // Auto-fill issued date from email metadata if available and no cached result
+    let autoFilledFields = {}
+    if (file.metadata && typeof file.metadata === 'object' && 'source' in file.metadata) {
+      const metadata = file.metadata as any
+      if (metadata.source === 'email' && metadata.receivedDate && !cachedResults.issuedAt) {
+        const emailDate = new Date(metadata.receivedDate)
+        autoFilledFields = {
+          issuedAt: emailDate.toISOString().split('T')[0] // Format as YYYY-MM-DD
+        }
+      }
+    }
+
     return {
       ...baseState,
       ...extraFieldsState,
+      ...autoFilledFields,
       ...cachedResults,
     }
   }, [file.filename, settings, extraFields, file.cachedParseResult])
@@ -189,31 +203,39 @@ export default function AnalyzeForm({
           required={fieldMap.name.isRequired}
         />
 
-        <div className="relative">
-          <FormInput
-            title={fieldMap.merchant.name}
-            name="merchant"
-            value={formData.merchant}
-            onChange={(e) => setFormData((prev) => ({ ...prev, merchant: e.target.value }))}
-            hideIfEmpty={!fieldMap.merchant.isVisibleInAnalysis}
-            required={fieldMap.merchant.isRequired}
-            className={isUnknownVendor ? "border-orange-400 bg-orange-50" : ""}
-          />
+        <div className="space-y-2">
+          <div className="relative">
+            <FormInput
+              title={fieldMap.merchant.name}
+              name="merchant"
+              value={formData.merchant}
+              onChange={(e) => setFormData((prev) => ({ ...prev, merchant: e.target.value }))}
+              hideIfEmpty={!fieldMap.merchant.isVisibleInAnalysis}
+              required={fieldMap.merchant.isRequired}
+              className={isUnknownVendor ? "border-orange-400 bg-orange-50" : ""}
+            />
+            {isUnknownVendor && formData.merchant && (
+              <div className="absolute -top-1 -right-1 bg-orange-500 text-white text-xs px-2 py-1 rounded-full shadow-sm">
+                Unknown Vendor
+              </div>
+            )}
+          </div>
+          
           {isUnknownVendor && formData.merchant && (
-            <div className="absolute -top-1 -right-1 bg-orange-500 text-white text-xs px-2 py-1 rounded-full shadow-sm">
-              Unknown Vendor
+            <div className="flex items-center space-x-2 p-3 bg-orange-50 rounded-md border border-orange-200">
+              <input 
+                type="checkbox" 
+                id="addToKnownBillers" 
+                name="addToKnownBillers" 
+                className="rounded border-orange-300 focus:ring-orange-500"
+              />
+              <label htmlFor="addToKnownBillers" className="text-sm text-orange-800">
+                Add "{formData.merchant}" to known billers for future AI filtering
+              </label>
             </div>
           )}
         </div>
 
-        <FormInput
-          title={fieldMap.description.name}
-          name="description"
-          value={formData.description}
-          onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-          hideIfEmpty={!fieldMap.description.isVisibleInAnalysis}
-          required={fieldMap.description.isRequired}
-        />
 
         <div className="flex flex-wrap gap-4">
           <FormInput
@@ -230,15 +252,8 @@ export default function AnalyzeForm({
             required={fieldMap.total.isRequired}
           />
 
-          <FormSelectCurrency
-            title={fieldMap.currencyCode.name}
-            currencies={currencies}
-            name="currencyCode"
-            value={formData.currencyCode}
-            onValueChange={(value) => setFormData((prev) => ({ ...prev, currencyCode: value }))}
-            hideIfEmpty={!fieldMap.currencyCode.isVisibleInAnalysis}
-            required={fieldMap.currencyCode.isRequired}
-          />
+          {/* Currency field hidden per user request - defaulting to USD */}
+          <input type="hidden" name="currencyCode" value="USD" />
 
           <FormSelectType
             title={fieldMap.type.name}
@@ -273,6 +288,14 @@ export default function AnalyzeForm({
             hideIfEmpty={!fieldMap.issuedAt.isVisibleInAnalysis}
             required={fieldMap.issuedAt.isRequired}
           />
+          
+          <FormInput
+            title="Pay On Date"
+            type="date"
+            name="payOnDate"
+            value={formData.payOnDate}
+            onChange={(e) => setFormData((prev) => ({ ...prev, payOnDate: e.target.value }))}
+          />
         </div>
 
         <div className="flex flex-row gap-4">
@@ -299,6 +322,14 @@ export default function AnalyzeForm({
               required={fieldMap.projectCode.isRequired}
             />
           )}
+          
+          <FormInput
+            title="Memo/Description"
+            name="description"
+            value={formData.description}
+            onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+            placeholder="Enter memo for payment"
+          />
         </div>
 
         <FormInput

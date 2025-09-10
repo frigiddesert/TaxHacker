@@ -1,0 +1,81 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    ports:
+      - "7331:7331"
+    environment:
+      - NODE_ENV=development
+      - SELF_HOSTED_MODE=true
+      - UPLOAD_PATH=/app/data/uploads
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/taxhacker
+      - BETTER_AUTH_SECRET=local-dev-secret-key-change-in-production
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - EMAIL_INGESTION_HOST=${EMAIL_INGESTION_HOST}
+      - EMAIL_INGESTION_PORT=${EMAIL_INGESTION_PORT:-993}
+      - EMAIL_INGESTION_SECURE=${EMAIL_INGESTION_SECURE:-true}
+      - EMAIL_INGESTION_USER=${EMAIL_INGESTION_USER}
+      - EMAIL_INGESTION_PASSWORD=${EMAIL_INGESTION_PASSWORD}
+      - EMAIL_INGESTION_MAILBOX=${EMAIL_INGESTION_MAILBOX:-INBOX}
+      - EMAIL_INGESTION_POLLING_INTERVAL=${EMAIL_INGESTION_POLLING_INTERVAL:-300000}
+      - EMAIL_INGESTION_FIRST_EMAIL_DATE=${EMAIL_INGESTION_FIRST_EMAIL_DATE}
+      - QBO_ENV=${QBO_ENV:-sandbox}
+      - QBO_CLIENT_ID=${QBO_CLIENT_ID:-}
+      - QBO_CLIENT_SECRET=${QBO_CLIENT_SECRET:-}
+      - QBO_REDIRECT_URI=${QBO_REDIRECT_URI:-http://localhost:7331/qb/callback}
+      - QBO_WEBHOOK_VERIFIER=${QBO_WEBHOOK_VERIFIER:-}
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      # Mount source code for development (hot reload if you add dev server)
+      - .:/app
+      # Exclude node_modules to avoid conflicts
+      - /app/node_modules
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: npm run dev
+    logging:
+      driver: "local"
+      options:
+        max-size: "100M"
+        max-file: "3"
+
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "5432:5432"  # Expose postgres port for local development
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=taxhacker
+    volumes:
+      - taxhacker_dev_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "local"
+      options:
+        max-size: "100M"
+        max-file: "3"
+
+  # Optional: Adminer for database management
+  adminer:
+    image: adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  taxhacker_dev_pgdata:

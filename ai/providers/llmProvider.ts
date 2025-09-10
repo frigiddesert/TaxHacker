@@ -30,7 +30,7 @@ export interface LLMResponse {
 
 async function requestLLMUnified(config: LLMConfig, req: LLMRequest): Promise<LLMResponse> {
   try {
-    const temperature = 0
+    const temperature = 1
     let model: any
     if (config.provider === "openai") {
       model = new ChatOpenAI({

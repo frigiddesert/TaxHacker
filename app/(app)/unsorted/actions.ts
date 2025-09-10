@@ -23,6 +23,7 @@ import { randomUUID } from "crypto"
 import { mkdir, readFile, rename, writeFile } from "fs/promises"
 import { revalidatePath } from "next/cache"
 import path from "path"
+import { moveProcessedEmailToFolder } from "@/scripts/email-processor"
 
 export async function analyzeFileAction(
   file: File,
@@ -96,6 +97,36 @@ export async function saveFileAsTransactionAction(
     const file = await getFileById(fileId, user.id)
     if (!file) throw new Error("File not found")
 
+    // Check if user wants to add merchant to known billers
+    const addToKnownBillers = formData.get("addToKnownBillers") === "on"
+    const merchantName = formData.get("merchant") as string
+    
+    if (addToKnownBillers && merchantName) {
+      // Check if vendor already exists
+      const { prisma } = await import("@/lib/db")
+      const existingVendor = await prisma.vendor.findFirst({
+        where: {
+          userId: user.id,
+          name: {
+            contains: merchantName,
+            mode: 'insensitive'
+          }
+        }
+      })
+      
+      if (!existingVendor) {
+        // Create new vendor
+        await prisma.vendor.create({
+          data: {
+            userId: user.id,
+            name: merchantName,
+            paymentMethod: 'Manual', // Default payment method
+            isActive: true,
+          }
+        })
+      }
+    }
+
     // Create transaction
     const transaction = await createTransaction(user.id, validatedForm.data)
 
@@ -117,6 +148,24 @@ export async function saveFileAsTransactionAction(
     })
 
     await updateTransactionFiles(transaction.id, user.id, [file.id])
+
+    // If this file came from an email, move the email to processed folder
+    if (file.metadata && typeof file.metadata === 'object' && 'source' in file.metadata) {
+      const metadata = file.metadata as any;
+      if (metadata.source === 'email' && metadata.emailUid && metadata.emailUidValidity && metadata.emailMailbox) {
+        try {
+          console.log(`Moving processed email UID ${metadata.emailUid} to "Processed by Accountant" folder`);
+          await moveProcessedEmailToFolder(
+            metadata.emailUid,
+            BigInt(metadata.emailUidValidity),
+            metadata.emailMailbox
+          );
+        } catch (error) {
+          console.error('Failed to move email to processed folder:', error);
+          // Don't fail the transaction save if email move fails
+        }
+      }
+    }
 
     revalidatePath("/unsorted")
     revalidatePath("/transactions")

@@ -7,7 +7,13 @@
     "dev": "next dev -p 7331 --turbopack",
     "build": "next build",
     "start": "prisma migrate deploy && next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset",
+    "email:check": "cd scripts && npx ts-node email-processor.ts",
+    "email:headers": "cd scripts && npx ts-node imap-headers.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
