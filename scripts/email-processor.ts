@@ -137,12 +137,13 @@ class EmailIngestionService {
         
         try {
           const searchResults = await this.client.search(searchQuery);
-          console.log(`Found ${searchResults.length} emails to process`);
           
-          if (searchResults.length === 0) {
+          if (!searchResults || searchResults.length === 0) {
             console.log('No new emails to process');
             return;
           }
+          
+          console.log(`Found ${searchResults.length} emails to process`);
           
           // Fetch messages in smaller batches to avoid issues
           const batchSize = 10;
