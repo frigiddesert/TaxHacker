@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
-import { spawn } from 'child_process'
-import path from 'path'
+import { SimpleEmailFetch } from '@/lib/simple-email-fetch'
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -10,59 +9,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Run the email processor script
-    return new Promise<NextResponse>((resolve) => {
-      const scriptPath = path.join(process.cwd(), 'scripts', 'email-processor.ts')
-      const child = spawn('npx', ['ts-node', scriptPath], {
-        cwd: process.cwd(),
-        env: { ...process.env, FORCE_COLOR: '0' },
-      })
+    console.log('Email check request received for user:', user.email)
 
-      let output = ''
-      let errorOutput = ''
+    // Parse request body for force parameter
+    const body = await request.json().catch(() => ({}))
+    const force = body.force === true
 
-      child.stdout.on('data', (data) => {
-        output += data.toString()
-      })
+    console.log(`Fetching emails... (force: ${force})`)
 
-      child.stderr.on('data', (data) => {
-        errorOutput += data.toString()
-      })
+    // Use the simple email fetch service
+    const emailService = new SimpleEmailFetch()
+    const result = await emailService.fetchEmails(force)
 
-      child.on('close', (code) => {
-        if (code === 0) {
-          // Parse the output to get statistics
-          const lines = output.split('\n')
-          const processedMatch = output.match(/Processed (\d+) emails/)
-          const failedMatch = output.match(/Failed (\d+) emails/)
-          
-          const processed = processedMatch ? parseInt(processedMatch[1]) : 0
-          const failed = failedMatch ? parseInt(failedMatch[1]) : 0
+    console.log('Email fetch completed:', {
+      totalFetched: result.totalFetched,
+      processed: result.processed,
+      failed: result.failed,
+      errors: result.errors.length
+    })
 
-          resolve(NextResponse.json({
-            success: true,
-            processed,
-            failed,
-            output: output.trim(),
-          }))
-        } else {
-          console.error('Email processor failed:', errorOutput)
-          resolve(NextResponse.json({
-            success: false,
-            error: 'Email processing failed',
-            details: errorOutput.trim(),
-          }, { status: 500 }))
-        }
-      })
-
-      child.on('error', (error) => {
-        console.error('Failed to spawn email processor:', error)
-        resolve(NextResponse.json({
-          success: false,
-          error: 'Failed to start email processor',
-          details: error.message,
-        }, { status: 500 }))
-      })
+    return NextResponse.json({
+      success: true,
+      totalFetched: result.totalFetched,
+      processed: result.processed,
+      failed: result.failed,
+      skipped: 0,
+      errors: result.errors,
+      message: `Found ${result.totalFetched} emails. Processed: ${result.processed}, Failed: ${result.failed}`,
     })
   } catch (error) {
     console.error('Error in email check API:', error)

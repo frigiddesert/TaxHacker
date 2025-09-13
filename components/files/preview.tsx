@@ -24,25 +24,43 @@ export function FilePreview({ file }: { file: File }) {
     return <EmailPreview file={file} />
   }
 
+  // Check if this is a PDF file
+  const isPdfFile = file.mimetype === "application/pdf"
+
   return (
     <>
       <div className="flex flex-col gap-2 p-4 overflow-hidden">
         <div className="aspect-[3/4]">
-          <Image
-            src={`/files/preview/${file.id}`}
-            alt={file.filename}
-            width={300}
-            height={400}
-            loading="lazy"
-            className={`${
-              isEnlarged
-                ? "fixed inset-0 z-50 m-auto w-screen h-screen object-contain cursor-zoom-out"
-                : "w-full h-full object-contain cursor-zoom-in"
-            }`}
-            onClick={() => setIsEnlarged(!isEnlarged)}
-          />
-          {isEnlarged && (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" onClick={() => setIsEnlarged(false)} />
+          {isPdfFile ? (
+            // Embed PDF directly for better compatibility when conversion fails
+            <div className="w-full h-full border rounded">
+              <iframe
+                src={`/files/preview/${file.id}`}
+                width="100%"
+                height="100%"
+                className="border-0"
+                title={file.filename}
+              />
+            </div>
+          ) : (
+            <>
+              <Image
+                src={`/files/preview/${file.id}`}
+                alt={file.filename}
+                width={300}
+                height={400}
+                loading="lazy"
+                className={`${
+                  isEnlarged
+                    ? "fixed inset-0 z-50 m-auto w-screen h-screen object-contain cursor-zoom-out"
+                    : "w-full h-full object-contain cursor-zoom-in"
+                }`}
+                onClick={() => setIsEnlarged(!isEnlarged)}
+              />
+              {isEnlarged && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" onClick={() => setIsEnlarged(false)} />
+              )}
+            </>
           )}
         </div>
         <div className="flex flex-col gap-2 mt-2 overflow-hidden">

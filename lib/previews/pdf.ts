@@ -27,7 +27,7 @@ export async function pdfToImages(user: User, origFilePath: string): Promise<{ c
     return { contentType: "image/webp", pages: existingPages }
   }
 
-  // If not — convert the file as store in previews folder
+  // Use pdf2pic directly (PDF.js disabled due to import issues)
   const pdf2picOptions = {
     density: config.upload.pdfs.dpi,
     saveFilename: basename,
@@ -41,14 +41,14 @@ export async function pdfToImages(user: User, origFilePath: string): Promise<{ c
 
   try {
     const convert = fromPath(origFilePath, pdf2picOptions)
-    const results = await convert.bulk(-1, { responseType: "image" }) // TODO: respect MAX_PAGES here too
+    const results = await convert.bulk(-1, { responseType: "image" })
     const paths = results.filter((result) => result && result.path).map((result) => result.path) as string[]
     return {
       contentType: "image/webp",
       pages: paths,
     }
   } catch (error) {
-    console.error("Error converting PDF to image:", error)
+    console.error("PDF conversion failed - ImageMagick may not be installed:", error)
     throw error
   }
 }

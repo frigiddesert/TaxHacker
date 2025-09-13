@@ -64,10 +64,11 @@ export default function AnalyzeForm({
       currencyCode: settings.default_currency,
       convertedTotal: 0.0,
       convertedCurrencyCode: settings.default_currency,
-      categoryCode: settings.default_category,
+      qbAccountId: "",
       projectCode: settings.default_project,
       issuedAt: "",
       payOnDate: "",
+      payType: "",
       note: "",
       text: "",
       items: [],
@@ -296,28 +297,45 @@ export default function AnalyzeForm({
             value={formData.payOnDate}
             onChange={(e) => setFormData((prev) => ({ ...prev, payOnDate: e.target.value }))}
           />
+
+          <FormSelect
+            title="Pay Type"
+            name="payType"
+            value={formData.payType}
+            onValueChange={(value) => setFormData((prev) => ({ ...prev, payType: value }))}
+            items={[
+              { code: "ach", name: "ACH" },
+              { code: "billpay", name: "Billpay" },
+              { code: "autopay", name: "Autopay" },
+              { code: "check", name: "Check" },
+              { code: "wire", name: "Wire Transfer" },
+              { code: "credit_card", name: "Credit Card" },
+              { code: "cash", name: "Cash" },
+            ]}
+            placeholder="Select Pay Type"
+          />
         </div>
 
         <div className="flex flex-row gap-4">
           <FormSelectCategory
-            title="QB Account"
+            title="Account"
             categories={categories}
             name="categoryCode"
             value={formData.categoryCode}
             onValueChange={(value) => setFormData((prev) => ({ ...prev, categoryCode: value }))}
-            placeholder="Select QB Account"
+            placeholder="Select Account"
             hideIfEmpty={!fieldMap.categoryCode.isVisibleInAnalysis}
             required={fieldMap.categoryCode.isRequired}
           />
 
           {projects.length > 0 && (
             <FormSelectProject
-              title="QB Class"
+              title="Class"
               projects={projects}
               name="projectCode"
               value={formData.projectCode}
               onValueChange={(value) => setFormData((prev) => ({ ...prev, projectCode: value }))}
-              placeholder="Select QB Class"
+              placeholder="Select Class"
               hideIfEmpty={!fieldMap.projectCode.isVisibleInAnalysis}
               required={fieldMap.projectCode.isRequired}
             />

@@ -11,7 +11,7 @@ async function checkEmails() {
     
     console.log("Email Ingestion Logs:", logs.length);
     logs.forEach(log => {
-      console.log(`- UID: ${log.uid}, From: ${log.from}, Subject: ${log.subject}, Status: ${log.status}`);
+      console.log(`UID: ${log.uid}, From: ${log.from}, Subject: ${log.subject}, Status: ${log.status}`);
     });
     
   } catch (error) {

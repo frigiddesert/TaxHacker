@@ -1,0 +1,174 @@
+Account List,,,,,
+"Rim RR, LLC",,,,,
+
+Account #,Full name,Type,Detail type,Description,Total balance
+2050,Accounts Payable,Accounts payable (A/P),Accounts Payable (A/P),,"-86,574.31"
+1100,Accounts Receivable,Accounts receivable (A/R),Accounts Receivable (A/R),,"3,712.91"
+1003,Fidelity Savings,Bank,Savings,,"101,965.84"
+1002,South State Treasury,Bank,Checking,,"44,967.49"
+1000,Zions Checking,Bank,Checking,,"5,090.20"
+5000,Cost of Goods Sold,Cost of Goods Sold,Supplies & Materials - COGS,,
+5001,Cost of Goods Sold:Bikes,Cost of Goods Sold,Supplies & Materials - COGS,,
+5051,Cost of Goods Sold:Commission Expense,Cost of Goods Sold,Other Costs of Services - COS,,
+5002,Cost of Goods Sold:E-Bike,Cost of Goods Sold,Supplies & Materials - COGS,,
+5003,Cost of Goods Sold:Merchandise,Cost of Goods Sold,Supplies & Materials - COGS,,
+5004,Cost of Goods Sold:Merchant Service Fees,Cost of Goods Sold,Other Costs of Services - COS,,
+5005,"Cost of Goods Sold:Parts, Supplies & Materials",Cost of Goods Sold,Supplies & Materials - COGS,,
+5006,Cost of Goods Sold:Shipping Expense,Cost of Goods Sold,"Shipping, Freight & Delivery - COS",,
+5007,Cost of Goods Sold:Shuttles,Cost of Goods Sold,Other Costs of Services - COS,,
+5050,Cost of Goods Sold:Tours,Cost of Goods Sold,Other Costs of Services - COS,,
+5052,"Cost of Goods Sold:Tours:Equipment <$2,500",Cost of Goods Sold,Other Costs of Services - COS,,
+5053,Cost of Goods Sold:Tours:Food (Grocery),Cost of Goods Sold,Other Costs of Services - COS,,
+5054,Cost of Goods Sold:Tours:Food (Warehouse),Cost of Goods Sold,Other Costs of Services - COS,,
+5055,Cost of Goods Sold:Tours:Fuel,Cost of Goods Sold,Other Costs of Services - COS,,
+5057,Cost of Goods Sold:Tours:Laundry Service,Cost of Goods Sold,Other Costs of Services - COS,,
+5056,Cost of Goods Sold:Tours:Lodging & Dining,Cost of Goods Sold,Other Costs of Services - COS,,
+5059,Cost of Goods Sold:Tours:Outside Adventure Expense,Cost of Goods Sold,Other Costs of Services - COS,,
+5058,Cost of Goods Sold:Tours:Outside Rental Bike,Cost of Goods Sold,Other Costs of Services - COS,,
+5070,Cost of Goods Sold:Tours:Permits-CNP,Cost of Goods Sold,Other Costs of Services - COS,,
+5071,Cost of Goods Sold:Tours:Permits-Other,Cost of Goods Sold,Other Costs of Services - COS,,
+5069,Cost of Goods Sold:Tours:Trail Work,Cost of Goods Sold,Other Costs of Services - COS,,
+2002,Amazon Business Prime -1003,Credit Card,Credit Card,,120.90
+2004,Chase -7284,Credit Card,Credit Card,,"-11,414.15"
+2001,Chase Credit Card 1711,Credit Card,Credit Card,,15.00
+2000,Chase Credit Card 8130,Credit Card,Credit Card,,"-1,376.38"
+2003,Sam's Club -7375,Credit Card,Credit Card,,0.00
+3200,Additional Paid-in Capital,Equity,Accumulated Adjustment,,"-215,000.00"
+3240,Distribution E&E,Equity,Partner Distributions,,"132,872.73"
+3245,Distribution Reid,Equity,Partner Distributions,,"28,141.66"
+2090,NCS Reid,Equity,Common Stock,,"-13,359.78"
+3000,Opening Balance Equity,Equity,Opening Balance Equity,,0.00
+3250,Retained Earnings,Equity,Retained Earnings,,
+5100,Advertisment & Promotion,Expenses,Advertising/Promotional,,
+5101,Advertisment & Promotion:Advertising & Marketing,Expenses,Advertising/Promotional,,
+5102,Advertisment & Promotion:Marketing Materials,Expenses,Advertising/Promotional,,
+5150,Automobile Maintenance,Expenses,Auto,,
+5151,Automobile Maintenance:Licenses & Registration,Expenses,Auto,,
+5152,Automobile Maintenance:Repairs & Maintenance,Expenses,Auto,,
+5200,Bank Service Charges,Expenses,Bank Charges,,
+5225,Employee Housing Expense,Expenses,Other Business Expenses,,
+5250,Insurance,Expenses,Insurance,,
+5256,Insurance:Health Insurance,Expenses,Insurance,,
+5255,Insurance:Insurance - Other,Expenses,Insurance,,
+5251,Insurance:Liability & Property Insurance,Expenses,Insurance,,
+5252,Insurance:Life Insurance,Expenses,Insurance,,
+5253,Insurance:Vehicle Insurance,Expenses,Insurance,,
+5254,Insurance:Workers Comp,Expenses,Insurance,,
+5300,Interest Expense,Expenses,Interest Paid,,
+5700,Meals & Entertainment,Expenses,Entertainment Meals,,
+5350,Office/General Administrative Expenses,Expenses,Office/General Administrative Expenses,,
+5351,Office/General Administrative Expenses:Computer & Tech,Expenses,Office/General Administrative Expenses,,
+5352,"Office/General Administrative Expenses:Dues, Subscriptions & Software",Expenses,Dues & subscriptions,,
+5353,Office/General Administrative Expenses:Janitorial Supplies,Expenses,Supplies & Materials,,
+5354,Office/General Administrative Expenses:Office Supplies & Expense,Expenses,Supplies & Materials,,
+5355,Office/General Administrative Expenses:Postage and Delivery,Expenses,"Shipping, Freight & Delivery",,
+5356,Office/General Administrative Expenses:Telephone/Internet,Expenses,Communication,,
+5400,Payroll,Expenses,Payroll Expenses,,
+5411,Payroll:1099 Employees,Expenses,Payroll Expenses,,
+5401,Payroll:Bike Mechanics,Expenses,Payroll Wage Expenses,,
+5402,Payroll:Day Tour Guides,Expenses,Payroll Wage Expenses,,
+5403,Payroll:Employer Tax,Expenses,Payroll Tax Expenses,,
+5405,Payroll:Multi-day Guides,Expenses,Payroll Wage Expenses,,
+5406,Payroll:Office,Expenses,Payroll Wage Expenses,,
+5404,Payroll:Operations,Expenses,Payroll Wage Expenses,,
+5408,Payroll:Payroll Service Fee,Expenses,Payroll Expenses,,
+5409,Payroll:Per Diem (Non-Taxable),Expenses,Payroll Expenses,,
+5407,Payroll:SCorp Officers,Expenses,Payroll Wage Expenses,,
+5410,Payroll:Shuttle,Expenses,Payroll Expenses,,
+5500,Professional Fees,Expenses,Legal & Professional Fees,,
+5501,Professional Fees:Accounting,Expenses,Legal & Professional Fees,,
+5502,Professional Fees:Contract Work (Office),Expenses,Cost of Labor,,
+5503,Professional Fees:Legal Fees,Expenses,Legal & Professional Fees,,
+5504,Professional Fees:Professional Training,Expenses,Legal & Professional Fees,,
+5505,Professional Fees:Recruiting,Expenses,Legal & Professional Fees,,
+5506,Professional Fees:Website Maintenance,Expenses,Cost of Labor,,
+,Purchases,Expenses,Supplies & Materials,,
+5600,Rent,Expenses,Rent or Lease of Buildings,,
+5604,Rent:Other,Expenses,Rent or Lease of Buildings,,
+5603,Rent:Parking,Expenses,Rent or Lease of Buildings,,
+5602,Rent:Warehouse,Expenses,Rent or Lease of Buildings,,
+5650,Repairs,Expenses,Repair & Maintenance,,
+5651,Repairs:Building Repairs,Expenses,Repair & Maintenance,,
+5652,Repairs:Equipment Repairs,Expenses,Repair & Maintenance,,
+5653,Repairs:Other Repairs,Expenses,Repair & Maintenance,,
+5750,Taxes,Expenses,Taxes Paid,,
+5751,Taxes:Property,Expenses,Taxes Paid,,
+5752,Taxes:Sales Tax Expense,Expenses,Taxes Paid,,
+5753,Taxes:Use Tax Expense,Expenses,Taxes Paid,,
+5800,Travel Expenses,Expenses,Travel,,
+,Unapplied Cash Bill Payment Expense,Expenses,Unapplied Cash Bill Payment Expense,,
+,Uncategorized Expense,Expenses,Other Miscellaneous Service Cost,,
+5850,Utilities,Expenses,Utilities,,
+1650,Accumulated Depreciation,Fixed Assets,Accumulated Depreciation,,"-212,302.22"
+1700,Building & Land,Fixed Assets,Buildings,,"840,000.00"
+1701,Machinery & Equipment,Fixed Assets,Machinery & Equipment,,"93,500.00"
+1702,Vehicles,Fixed Assets,Vehicles,,"232,035.20"
+,Billable Expense Income,Income,Service/Fee Income,,
+4035,Commission Income,Income,Service/Fee Income,,
+4000,Income,Income,Sales of Product Income,,
+4055,Income:Cancellation Fee,Income,Service/Fee Income,,
+4020,Income:Daytour Income,Income,Service/Fee Income,,
+4032,Income:Daytour Income:Booking Agent Income,Income,Service/Fee Income,,
+4034,Income:Daytour Income:Lunch,Income,Service/Fee Income,,
+4021,Income:Daytour Income:Utah Day Tours,Income,Service/Fee Income,,
+4045,Income:Employee Housing Income,Income,Other Primary Income,,
+4040,Income:Management Fees,Income,Service/Fee Income,,
+4005,Income:Merchandise Sales,Income,Sales of Product Income,,
+4001,Income:New Bike Sales,Income,Sales of Product Income,,
+4006,Income:Non-taxable Sales,Income,Sales of Product Income,,
+4041,Income:Other Income,Income,Service/Fee Income,,
+4002,Income:Rental Bike Sales,Income,Sales of Product Income,,
+4003,Income:Rental Bike Sales:Bikes,Income,Sales of Product Income,,
+4004,Income:Rental Bike Sales:E-Bikes,Income,Sales of Product Income,,
+4010,Income:Rental Income,Income,Service/Fee Income,,
+4011,Income:Rental Income:Bike Rental,Income,Service/Fee Income,,
+4013,Income:Rental Income:Camping,Income,Service/Fee Income,,
+4012,Income:Rental Income:E-Bike Rental,Income,Service/Fee Income,,
+4018,Income:Rental Income:Insurance,Income,Service/Fee Income,,
+4015,Income:Rental Income:Kitchen Equipment Rental,Income,Service/Fee Income,,
+4014,Income:Rental Income:Non-tour Bike Rental,Income,Service/Fee Income,,
+4007,Income:Sales Tax Discount,Income,Sales of Product Income,,
+4036,Income:Services (Mechanics),Income,Service/Fee Income,,
+4037,Income:Shipping Income,Income,Service/Fee Income,,
+4038,Income:Shuttle Income,Income,Service/Fee Income,,
+4025,Income:Trip Income,Income,Service/Fee Income,,
+4026,Income:Trip Income:Arizona - Multiday Tours,Income,Service/Fee Income,,
+4028,Income:Trip Income:Colorado - Day Tours,Income,Service/Fee Income,,
+4027,Income:Trip Income:Colorado - Multiday Tours,Income,Service/Fee Income,,
+4033,Income:Trip Income:Support Income,Income,Service/Fee Income,,
+4029,Income:Trip Income:Utah - Multiday Tours,Income,Service/Fee Income,,
+4030,Income:Trip Income:Utah - Non-Trip Tour,Income,Service/Fee Income,,
+4050,Income:Uncategorized Income,Income,Service/Fee Income,,
+,Sales of Product Income,Income,Sales of Product Income,,
+,Unapplied Cash Payment Income,Income,Unapplied Cash Payment Income,,
+2056,Loan Payable E&E,Long Term Liabilities,Notes Payable,,"-82,975.72"
+2057,Seller Carry Note,Long Term Liabilities,Notes Payable,,"-300,000.00"
+2055,Zions Loan Payable,Long Term Liabilities,Notes Payable,,"-1,061,959.93"
+1830,Accumulated Amortization,Other Assets,Accumulated Amortization of Other Assets,,"-18,978.19"
+1810,Intellectual Property,Other Assets,Other Long-term Assets,,"244,000.00"
+1820,Loan Fees,Other Assets,Other Long-term Assets,,"31,289.08"
+1850,Credit for Customer,Other Current Assets,Other Current Assets,,"3,859.71"
+1250,Inventory,Other Current Assets,Inventory,,"289,750.64"
+1800,Inventory Asset,Other Current Assets,Inventory,,
+1253,Inventory:Merchandise,Other Current Assets,Inventory,,
+1251,Inventory:Rental Bikes,Other Current Assets,Inventory,,"288,983.40"
+1252,Inventory:Tour Equipment,Other Current Assets,Inventory,,767.24
+1600,Undeposited Funds/Cash,Other Current Assets,Undeposited Funds,,
+2500,Gift Certificate Liability,Other Current Liabilities,Other Current Liabilities,,-150.00
+,Out Of Scope Agency Payable,Other Current Liabilities,Sales Tax Payable,,
+2150,Payroll Liability,Other Current Liabilities,Other Current Liabilities,,-883.94
+2152,Payroll Liability:Payroll Tax Payable,Other Current Liabilities,Payroll Tax Payable,,0.00
+2153,Payroll Liability:Payroll Tips,Other Current Liabilities,Other Current Liabilities,,-883.94
+2400,Sales Tax Payable,Other Current Liabilities,Sales Tax Payable,,"-7,901.51"
+2401,Utah State Tax Commission Payable,Other Current Liabilities,Sales Tax Payable,,0.00
+6002,Amortization Expense,Other Expense,Amortization,,
+6001,Depreciation Expense,Other Expense,Depreciation,,
+6000,Other Expenses,Other Expense,Other Miscellaneous Expense,,
+,Reconciliation Discrepancies,Other Expense,Other Miscellaneous Expense,,
+5995,Gain/Loss on Sale of Asset,Other Income,Interest Earned,,
+5990,Interest Income,Other Income,Interest Earned,,
+TOTAL,,,,,"$327,311.93"
+
+
+
+"Accrual Basis Friday, September 12, 2025 03:27 PM GMTZ",,,,,

@@ -96,7 +96,7 @@ export default function TriagePage() {
     }
   }
 
-  async function checkEmailsNow() {
+  async function checkEmailsNow(force: boolean = true) {
     try {
       setCheckingEmails(true)
       const response = await fetch('/api/emails/check', {
@@ -104,6 +104,7 @@ export default function TriagePage() {
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ days: 7, force })
       })
 
       if (!response.ok) throw new Error('Failed to check emails')
@@ -112,7 +113,7 @@ export default function TriagePage() {
       if (data.success) {
         showNotification({
           code: "global.banner",
-          message: `Checked emails: ${data.processed || 0} new, ${data.failed || 0} failed`,
+          message: `Checked emails: ${data.processed || 0} processed, ${data.skipped || 0} skipped, ${data.failed || 0} failed`,
           type: "success"
         })
         await fetchTriageEmails() // Refresh the list
@@ -247,7 +248,7 @@ export default function TriagePage() {
           <h1 className="text-3xl font-bold text-gray-900">Email Triage</h1>
           <div className="flex gap-2">
             <Button
-              onClick={checkEmailsNow}
+              onClick={() => checkEmailsNow(true)}
               disabled={checkingEmails}
               variant="outline"
             >
@@ -259,7 +260,7 @@ export default function TriagePage() {
               ) : (
                 <>
                   <Download className="mr-2 h-4 w-4" />
-                  Check Emails Now
+                  Force Process All Emails
                 </>
               )}
             </Button>

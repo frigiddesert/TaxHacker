@@ -1,5 +1,6 @@
-import { Vendor, Category, Project } from "@/prisma/client"
 "use client"
+
+import { Vendor, Category, Project } from "@/prisma/client"
 
 import { Button } from "@/components/ui/button"
 import { CrudTable } from "@/components/settings/crud"

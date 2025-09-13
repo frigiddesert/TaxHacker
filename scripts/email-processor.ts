@@ -363,7 +363,7 @@ class EmailIngestionService {
     // This will trigger the AI analysis in the main application
     await getPrismaClient().file.update({
       where: { id: fileUuid },
-      data: { cachedParseResult: null }
+      data: { cachedParseResult: undefined }
     });
   }
 
@@ -421,7 +421,7 @@ ${parsed.text || parsed.html}`;
     // This will trigger the AI analysis in the main application
     await getPrismaClient().file.update({
       where: { id: fileUuid },
-      data: { cachedParseResult: null }
+      data: { cachedParseResult: undefined }
     });
   }
 

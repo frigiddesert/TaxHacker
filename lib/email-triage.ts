@@ -1,101 +1,233 @@
 import { prisma } from '@/lib/db'
 import { EmailIngestionLog, User } from '@/prisma/client'
-import { getUserUploadsDirectory } from '@/lib/files'
+import { getUserUploadsDirectory, unsortedFilePath, safePathJoin } from '@/lib/files'
 import path from 'path'
 import fs from 'fs/promises'
+import { randomUUID } from 'crypto'
 
 /**
  * Process an email from the triage system to unsorted files
+ * This function finds existing files created by SimpleEmailFetch and makes them available in unsorted
  */
 export async function processEmailToUnsorted(emailLog: EmailIngestionLog, user: User) {
-  const uploadsDir = getUserUploadsDirectory(user)
-  const unsortedDir = path.join(uploadsDir, 'unsorted')
+  console.log(`Processing email ${emailLog.uid} to unsorted for user ${user.id}`)
   
-  // Ensure unsorted directory exists
-  await fs.mkdir(unsortedDir, { recursive: true })
+  // First, find existing files created by SimpleEmailFetch for this email
+  const existingFiles = await prisma.file.findMany({
+    where: {
+      userId: user.id,
+      metadata: {
+        path: ['seqno'],
+        equals: emailLog.uid
+      }
+    }
+  })
 
-  // Create metadata for the email file
-  const emailMetadata = {
-    source: 'email',
-    emailUid: emailLog.uid,
-    emailUidValidity: emailLog.uidValidity.toString(),
-    emailMailbox: emailLog.mailbox,
-    from: emailLog.from,
-    subject: emailLog.subject,
-    receivedDate: emailLog.internalDate?.toISOString(),
-    messageId: emailLog.messageId,
+  console.log(`Found ${existingFiles.length} existing files for email ${emailLog.uid}`)
+
+  if (existingFiles.length > 0) {
+    // Update existing files to make them appear in unsorted
+    const updatedFiles = []
+    
+    for (const file of existingFiles) {
+      const updatedFile = await prisma.file.update({
+        where: { id: file.id },
+        data: {
+          isReviewed: false, // Make sure they appear in unsorted
+        }
+      })
+      updatedFiles.push(updatedFile)
+      console.log(`Updated existing file: ${file.filename}`)
+    }
+    
+    return updatedFiles[0] // Return the first file (email content)
   }
 
-  // Create a text file with email content (we'll need to fetch the actual email content)
-  const emailFileName = `${emailLog.messageId || `email-${emailLog.uid}`}.txt`
-  const emailFilePath = path.join(unsortedDir, emailFileName)
-  
-  // Create email content text file
-  const emailContent = `From: ${emailLog.from}
-Subject: ${emailLog.subject}
-Date: ${emailLog.internalDate?.toISOString()}
-Message-ID: ${emailLog.messageId}
+  // If no existing files found, create new ones using proper path structure
+  const userUploadsDirectory = getUserUploadsDirectory(user)
+  await fs.mkdir(userUploadsDirectory, { recursive: true })
 
-[Email content will be populated when processing attachments]`
+  // Create email content file with proper path structure
+  const emailFileUuid = randomUUID()
+  const emailFileName = `email_${emailLog.uid}_${new Date().toISOString().replace(/[:.]/g, '-')}.txt`
+  const emailRelativePath = unsortedFilePath(emailFileUuid, emailFileName)
+  const emailFullPath = safePathJoin(userUploadsDirectory, emailRelativePath)
 
-  await fs.writeFile(emailFilePath, emailContent, 'utf-8')
+  // Ensure directory exists
+  await fs.mkdir(path.dirname(emailFullPath), { recursive: true })
 
-  // Create File record for the email
+  // Create email content
+  const emailContent = `From: ${emailLog.from || 'unknown'}
+To: Unknown
+Subject: ${emailLog.subject || '(no subject)'}
+Date: ${emailLog.internalDate?.toISOString() || new Date().toISOString()}
+Message-ID: ${emailLog.messageId || 'unknown'}
+
+--- Email Content ---
+
+Email content processed from IMAP sequence number ${emailLog.uid}.
+This email was moved from triage to unsorted for accounting review.
+
+Original email details:
+- Mailbox: ${emailLog.mailbox}
+- UID Validity: ${emailLog.uidValidity}
+- Internal Date: ${emailLog.internalDate?.toISOString()}
+- Status: ${emailLog.status}
+`
+
+  await fs.writeFile(emailFullPath, emailContent, 'utf-8')
+
+  // Create file record with RELATIVE path (critical fix!)
   const emailFileRecord = await prisma.file.create({
     data: {
+      id: emailFileUuid,
       userId: user.id,
       filename: emailFileName,
-      path: emailFilePath,
+      path: emailRelativePath, // Store RELATIVE path, not absolute!
       mimetype: 'text/plain',
-      metadata: emailMetadata,
+      metadata: {
+        source: 'email',
+        seqno: emailLog.uid,
+        uidValidity: emailLog.uidValidity.toString(),
+        mailbox: emailLog.mailbox,
+        from: emailLog.from,
+        subject: emailLog.subject,
+        receivedDate: emailLog.internalDate?.toISOString(),
+        messageId: emailLog.messageId,
+      },
       isReviewed: false,
       isSplitted: false,
     },
   })
 
-  // If there are attachments, we need to process them as well
+  console.log(`Created email file: ${emailFileName} with path: ${emailRelativePath}`)
+
+  // Handle PDF attachments if they exist
   const attachmentHashes = emailLog.attachmentHashes as string[] || []
   
   if (attachmentHashes.length > 0) {
-    // For now, we'll create placeholder files for attachments
-    // In a full implementation, you would need to fetch the actual attachment content
-    // from the email server and save it to disk
+    console.log(`Processing ${attachmentHashes.length} PDF attachments`)
     
-    for (let i = 0; i < attachmentHashes.length; i++) {
-      const attachmentHash = attachmentHashes[i]
-      const attachmentFileName = `attachment-${i + 1}-${attachmentHash.substring(0, 8)}.pdf` // Assume PDF for now
-      const attachmentFilePath = path.join(unsortedDir, attachmentFileName)
-      
-      // Create attachment metadata
-      const attachmentMetadata = {
-        source: 'email',
-        emailUid: emailLog.uid,
-        emailUidValidity: emailLog.uidValidity.toString(),
-        emailMailbox: emailLog.mailbox,
-        from: emailLog.from,
-        subject: emailLog.subject,
-        receivedDate: emailLog.internalDate?.toISOString(),
-        messageId: emailLog.messageId,
-        attachmentHash: attachmentHash,
-        parentEmailFileId: emailFileRecord.id,
+    // Try to find existing PDF files created by SimpleEmailFetch
+    const existingPdfFiles = await prisma.file.findMany({
+      where: {
+        userId: user.id,
+        mimetype: 'application/pdf',
+        metadata: {
+          path: ['seqno'],
+          equals: emailLog.uid
+        }
       }
+    })
 
-      // Note: In a full implementation, you would fetch the actual attachment content here
-      // For now, we'll just create a placeholder file
-      await fs.writeFile(attachmentFilePath, 'PDF attachment placeholder', 'utf-8')
+    if (existingPdfFiles.length > 0) {
+      // Update existing PDF files to appear in unsorted
+      for (const pdfFile of existingPdfFiles) {
+        await prisma.file.update({
+          where: { id: pdfFile.id },
+          data: {
+            isReviewed: false,
+          }
+        })
+        console.log(`Updated existing PDF file: ${pdfFile.filename}`)
+      }
+    } else {
+      // Create placeholder PDF files if originals not found
+      console.log(`No existing PDF files found, creating placeholders`)
+      
+      for (let i = 0; i < attachmentHashes.length; i++) {
+        const attachmentHash = attachmentHashes[i]
+        const pdfFileUuid = randomUUID()
+        const pdfFileName = `attachment_${emailLog.uid}_${i + 1}_${attachmentHash.substring(0, 8)}.pdf`
+        const pdfRelativePath = unsortedFilePath(pdfFileUuid, pdfFileName)
+        const pdfFullPath = safePathJoin(userUploadsDirectory, pdfRelativePath)
 
-      // Create File record for the attachment
-      await prisma.file.create({
-        data: {
-          userId: user.id,
-          filename: attachmentFileName,
-          path: attachmentFilePath,
-          mimetype: 'application/pdf', // Assume PDF for now
-          metadata: attachmentMetadata,
-          isReviewed: false,
-          isSplitted: false,
-        },
-      })
+        await fs.mkdir(path.dirname(pdfFullPath), { recursive: true })
+
+        // Create placeholder PDF content
+        const placeholderContent = `%PDF-1.4
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Page
+/Parent 2 0 R
+/MediaBox [0 0 612 792]
+/Contents 4 0 R
+>>
+endobj
+
+4 0 obj
+<<
+/Length 44
+>>
+stream
+BT
+/F1 12 Tf
+50 750 Td
+(PDF attachment placeholder) Tj
+ET
+endstream
+endobj
+
+xref
+0 5
+0000000000 65535 f 
+0000000010 00000 n 
+0000000053 00000 n 
+0000000107 00000 n 
+0000000181 00000 n 
+trailer
+<<
+/Size 5
+/Root 1 0 R
+>>
+startxref
+275
+%%EOF`
+
+        await fs.writeFile(pdfFullPath, placeholderContent, 'utf-8')
+
+        // Create PDF file record with RELATIVE path
+        await prisma.file.create({
+          data: {
+            id: pdfFileUuid,
+            userId: user.id,
+            filename: pdfFileName,
+            path: pdfRelativePath, // Store RELATIVE path!
+            mimetype: 'application/pdf',
+            metadata: {
+              source: 'email',
+              seqno: emailLog.uid,
+              uidValidity: emailLog.uidValidity.toString(),
+              mailbox: emailLog.mailbox,
+              from: emailLog.from,
+              subject: emailLog.subject,
+              receivedDate: emailLog.internalDate?.toISOString(),
+              messageId: emailLog.messageId,
+              attachmentHash: attachmentHash,
+              parentEmailFileId: emailFileRecord.id,
+            },
+            isReviewed: false,
+            isSplitted: false,
+          },
+        })
+
+        console.log(`Created PDF placeholder: ${pdfFileName} with path: ${pdfRelativePath}`)
+      }
     }
   }
 

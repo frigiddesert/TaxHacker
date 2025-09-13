@@ -16,6 +16,7 @@ import { createCategory, deleteCategory, updateCategory } from "@/models/categor
 import { createCurrency, deleteCurrency, updateCurrency } from "@/models/currencies"
 import { createField, deleteField, updateField } from "@/models/fields"
 import { createProject, deleteProject, updateProject } from "@/models/projects"
+import { createQbAccount, deleteQbAccount, updateQbAccount } from "@/models/qb-accounts"
 import { SettingsMap, updateSettings } from "@/models/settings"
 import { updateUser } from "@/models/users"
 import { Prisma, User } from "@/prisma/client"
@@ -276,4 +277,50 @@ export async function deleteFieldAction(userId: string, code: string) {
   }
   revalidatePath("/settings/fields")
   return { success: true }
+}
+
+export async function addQbAccountAction(userId: string, companyId: string, data: Prisma.QbAccountCreateInput) {
+  try {
+    const qbAccount = await createQbAccount(userId, companyId, {
+      accountNumber: data.accountNumber,
+      fullName: data.fullName,
+      type: data.type,
+      detailType: data.detailType,
+      description: data.description,
+      balance: data.balance,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+    })
+    revalidatePath("/settings/categories")
+    return { success: true, qbAccount }
+  } catch (error) {
+    return { success: false, error: "Failed to create QB account: " + error }
+  }
+}
+
+export async function editQbAccountAction(id: string, data: Prisma.QbAccountUpdateInput) {
+  try {
+    const qbAccount = await updateQbAccount(id, {
+      accountNumber: data.accountNumber,
+      fullName: data.fullName,
+      type: data.type,
+      detailType: data.detailType,
+      description: data.description,
+      balance: data.balance,
+      isActive: data.isActive,
+    })
+    revalidatePath("/settings/categories")
+    return { success: true, qbAccount }
+  } catch (error) {
+    return { success: false, error: "Failed to update QB account: " + error }
+  }
+}
+
+export async function deleteQbAccountAction(id: string) {
+  try {
+    await deleteQbAccount(id)
+    revalidatePath("/settings/categories")
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: "Failed to delete QB account: " + error }
+  }
 }
