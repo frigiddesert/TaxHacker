@@ -110,7 +110,7 @@ export class SimpleEmailFetch {
                 });
 
                 // Save email as text file
-                await this.saveEmailAsFile(parsed, user.id, attrs.envelope, seqno);
+                await this.saveEmailAsFile(parsed, user, attrs.envelope, seqno, 'INBOX', BigInt(box.uidvalidity || 0));
 
                 // Save any PDF attachments
                 const pdfAttachments = parsed.attachments?.filter(att => 
@@ -118,7 +118,7 @@ export class SimpleEmailFetch {
                 ) || [];
 
                 for (const attachment of pdfAttachments) {
-                  await this.savePdfAttachment(attachment, user.id, seqno);
+                  await this.savePdfAttachment(attachment, user, seqno, 'INBOX', BigInt(box.uidvalidity || 0));
                 }
 
                 // Update status to processed
@@ -176,12 +176,12 @@ export class SimpleEmailFetch {
     });
   }
 
-  private async saveEmailAsFile(parsed: any, userId: string, envelope: any, seqno: number): Promise<void> {
+  private async saveEmailAsFile(parsed: any, user: { id: string; email: string }, envelope: any, seqno: number, mailbox: string, uidValidity: bigint): Promise<void> {
     const fileUuid = randomUUID();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `email_${seqno}_${timestamp}.txt`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory({ id: userId } as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user as any);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     await fs.mkdir(path.dirname(fullFilePath), { recursive: true });
@@ -198,7 +198,7 @@ ${parsed.text || parsed.html || '(no content)'}`;
 
     await fs.writeFile(fullFilePath, emailContent);
 
-    await createFile(userId, {
+    await createFile(user.id, {
       id: fileUuid,
       filename,
       path: relativeFilePath,
@@ -209,24 +209,28 @@ ${parsed.text || parsed.html || '(no content)'}`;
         subject: envelope?.subject,
         receivedDate: new Date().toISOString(),
         size: emailContent.length,
-        seqno
+        seqno,
+        emailUid: seqno,
+        emailUidValidity: uidValidity.toString(),
+        emailMailbox: mailbox,
+        messageId: envelope?.['message-id'] || null
       }
     });
 
     console.log(`Saved email: ${filename}`);
   }
 
-  private async savePdfAttachment(attachment: any, userId: string, seqno: number): Promise<void> {
+  private async savePdfAttachment(attachment: any, user: { id: string; email: string }, seqno: number, mailbox: string, uidValidity: bigint): Promise<void> {
     const fileUuid = randomUUID();
     const filename = attachment.filename || `invoice_${seqno}.pdf`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory({ id: userId } as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user as any);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     await fs.mkdir(path.dirname(fullFilePath), { recursive: true });
     await fs.writeFile(fullFilePath, attachment.content);
 
-    await createFile(userId, {
+    await createFile(user.id, {
       id: fileUuid,
       filename,
       path: relativeFilePath,
@@ -235,7 +239,10 @@ ${parsed.text || parsed.html || '(no content)'}`;
         source: 'email',
         size: attachment.content.length,
         seqno,
-        attachmentHash: crypto.createHash('sha256').update(attachment.content).digest('hex')
+        attachmentHash: crypto.createHash('sha256').update(attachment.content).digest('hex'),
+        emailUid: seqno,
+        emailUidValidity: uidValidity.toString(),
+        emailMailbox: mailbox
       }
     });
 

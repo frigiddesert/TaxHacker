@@ -1,7 +1,7 @@
-import { db } from "@/lib/db"
+import { prisma } from "@/lib/db"
 
 export async function getPaymentMethods(userId: string) {
-  return await db.paymentMethod.findMany({
+  return await prisma.paymentMethod.findMany({
     where: { userId, isActive: true },
     orderBy: { sortOrder: 'asc' }
   })
@@ -13,7 +13,7 @@ export async function createPaymentMethod(userId: string, data: {
   description?: string
   sortOrder?: number
 }) {
-  return await db.paymentMethod.create({
+  return await prisma.paymentMethod.create({
     data: {
       userId,
       ...data,
@@ -28,14 +28,14 @@ export async function updatePaymentMethod(id: string, userId: string, data: {
   isActive?: boolean
   sortOrder?: number
 }) {
-  return await db.paymentMethod.update({
+  return await prisma.paymentMethod.update({
     where: { id, userId },
     data
   })
 }
 
 export async function deletePaymentMethod(id: string, userId: string) {
-  return await db.paymentMethod.delete({
+  return await prisma.paymentMethod.delete({
     where: { id, userId }
   })
 }

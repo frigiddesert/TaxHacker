@@ -7,8 +7,14 @@ ENV NODE_ENV=production
 # Build stage
 FROM base AS builder
 
-# Install dependencies required for Prisma
-RUN apt-get update && apt-get install -y openssl
+# Install build-time system deps for dev (turbopack) and previews
+# Include Ghostscript + (Image|Graphics)Magick so pdf2pic works in dev image
+RUN apt-get update && apt-get install -y \
+    openssl \
+    ghostscript \
+    graphicsmagick \
+    imagemagick \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -31,11 +37,12 @@ RUN npm run build
 # Production stage
 FROM base
 
-# Install required system dependencies
+# Install required system dependencies (runtime)
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     ghostscript \
     graphicsmagick \
+    imagemagick \
     openssl \
     libwebp-dev \
     postgresql-client \

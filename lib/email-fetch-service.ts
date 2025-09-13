@@ -73,7 +73,8 @@ export class EmailFetchService {
         console.log(`Searching for all emails in mailbox...`);
 
         // Skip date-based search entirely and get all messages
-        const messageUids = await this.client.search({}, { uid: true });
+        const rawUids = await this.client.search({}, { uid: true }) as any;
+        const messageUids: number[] = Array.isArray(rawUids) ? rawUids : [];
         console.log(`Found ${messageUids.length} total emails in mailbox`);
 
         result.totalFetched = messageUids.length;
@@ -87,7 +88,7 @@ export class EmailFetchService {
         const uidValidity = BigInt(mb.uidValidity ?? 0);
 
         // Fetch email details
-        const messages = await this.client.fetch(messageUids, {
+        const messages = await this.client.fetch(messageUids as any, {
           uid: true,
           envelope: true,
           source: true,
@@ -163,7 +164,14 @@ export class EmailFetchService {
               throw new Error('Empty message source');
             }
 
-            const attachmentHashes = await this.processEmail(message.source as Buffer, message.envelope, user.id);
+            const attachmentHashes = await this.processEmail(
+              message.source as Buffer,
+              message.envelope,
+              user,
+              uid,
+              config.emailIngestion.mailbox,
+              uidValidity
+            );
 
             // Update log with success
             await prisma.emailIngestionLog.update({
@@ -253,7 +261,14 @@ export class EmailFetchService {
     return result;
   }
 
-  private async processEmail(emailSource: Buffer, envelope: any, userId: string): Promise<string[] | null> {
+  private async processEmail(
+    emailSource: Buffer,
+    envelope: any,
+    user: { id: string; email: string },
+    uid: number,
+    mailbox: string,
+    uidValidity: bigint
+  ): Promise<string[] | null> {
     try {
       const parsed = await simpleParser(emailSource);
 
@@ -271,7 +286,7 @@ export class EmailFetchService {
         console.log(`[Email] Found ${pdfAttachments.length} PDF attachments, saving them`);
         for (const attachment of pdfAttachments) {
           try {
-            await this.processPdfAttachment(attachment, userId, envelope);
+            await this.processPdfAttachment(attachment, user, envelope, uid, mailbox, uidValidity);
             const hash = crypto.createHash('sha256').update(attachment.content).digest('hex');
             hashes.push(hash);
           } catch (pdfError) {
@@ -282,7 +297,7 @@ export class EmailFetchService {
       }
 
       // Always save email content for review
-      await this.saveEmailContent(parsed, userId, envelope);
+      await this.saveEmailContent(parsed, user, envelope, uid, mailbox, uidValidity);
       hashes.push('email-content');
 
       return hashes;
@@ -386,7 +401,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
     }
   }
 
-  private async processInvoiceEmail(parsed: any, envelope: any, userId: string): Promise<string[] | null> {
+  private async processInvoiceEmail(parsed: any, envelope: any, user: { id: string; email: string }, uid: number, mailbox: string, uidValidity: bigint): Promise<string[] | null> {
     try {
       // Process PDF attachments
       const pdfAttachments = parsed.attachments?.filter((att: any) => 
@@ -397,12 +412,12 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
       for (const attachment of pdfAttachments) {
         const hash = crypto.createHash('sha256').update(attachment.content).digest('hex');
         hashes.push(hash);
-        await this.processPdfAttachment(attachment, userId, envelope);
+        await this.processPdfAttachment(attachment, user, envelope, uid, mailbox, uidValidity);
       }
 
       // Also save the email body as a text file for analysis
       if (parsed.text || parsed.html) {
-        await this.saveEmailContent(parsed, userId, envelope);
+        await this.saveEmailContent(parsed, user, envelope, uid, mailbox, uidValidity);
         hashes.push('email-content');
       }
       
@@ -413,11 +428,18 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
     }
   }
 
-  private async processPdfAttachment(attachment: any, userId: string, envelope: any): Promise<void> {
+  private async processPdfAttachment(
+    attachment: any,
+    user: { id: string; email: string },
+    envelope: any,
+    uid: number,
+    mailbox: string,
+    uidValidity: bigint
+  ): Promise<void> {
     const fileUuid = randomUUID();
     const filename = attachment.filename || `invoice_${Date.now()}.pdf`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory({ id: userId } as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user as any);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     // Create directory if it doesn't exist
@@ -427,7 +449,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
     await writeFile(fullFilePath, attachment.content);
 
     // Create file record in database
-    await createFile(userId, {
+    await createFile(user.id, {
       id: fileUuid,
       filename,
       path: relativeFilePath,
@@ -438,20 +460,31 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
         subject: envelope.subject,
         receivedDate: new Date().toISOString(),
         size: attachment.content.length,
-        attachmentHash: crypto.createHash('sha256').update(attachment.content).digest('hex')
+        attachmentHash: crypto.createHash('sha256').update(attachment.content).digest('hex'),
+        emailUid: uid,
+        emailUidValidity: uidValidity.toString(),
+        emailMailbox: mailbox,
+        messageId: envelope.messageId || null
       }
     });
 
     console.log(`Saved PDF attachment: ${filename} to ${fullFilePath}`);
   }
 
-  private async saveEmailContent(parsed: any, userId: string, envelope: any): Promise<void> {
+  private async saveEmailContent(
+    parsed: any,
+    user: { id: string; email: string },
+    envelope: any,
+    uid: number,
+    mailbox: string,
+    uidValidity: bigint
+  ): Promise<void> {
     const fileUuid = randomUUID();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const fromEmail = envelope.from?.[0]?.address?.split('@')[0] || 'unknown';
     const filename = `email_${fromEmail}_${timestamp}.txt`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory({ id: userId } as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user as any);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     // Create directory if it doesn't exist
@@ -471,7 +504,7 @@ ${parsed.text || parsed.html || '(no content)'}`;
     await writeFile(fullFilePath, emailContent);
 
     // Create file record in database
-    await createFile(userId, {
+    await createFile(user.id, {
       id: fileUuid,
       filename,
       path: relativeFilePath,
@@ -482,7 +515,11 @@ ${parsed.text || parsed.html || '(no content)'}`;
         subject: envelope.subject,
         receivedDate: new Date().toISOString(),
         size: emailContent.length,
-        contentHash: crypto.createHash('sha256').update(emailContent).digest('hex')
+        contentHash: crypto.createHash('sha256').update(emailContent).digest('hex'),
+        emailUid: uid,
+        emailUidValidity: uidValidity.toString(),
+        emailMailbox: mailbox,
+        messageId: envelope.messageId || null
       }
     });
 

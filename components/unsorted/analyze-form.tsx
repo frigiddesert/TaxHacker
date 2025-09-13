@@ -14,9 +14,9 @@ import { FormInput, FormTextarea, FormSelect } from "@/components/forms/simple"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Category, Currency, Field, File, Project, Vendor } from "@/prisma/client"
-import { format } from "date-fns"
+import { format, subDays } from "date-fns"
 import { ArrowDownToLine, Brain, Loader2, Trash2 } from "lucide-react"
-import { startTransition, useActionState, useMemo, useState } from "react"
+import { startTransition, useActionState, useEffect, useMemo, useState } from "react"
 
 export default function AnalyzeForm({
   file,
@@ -65,6 +65,7 @@ export default function AnalyzeForm({
       convertedTotal: 0.0,
       convertedCurrencyCode: settings.default_currency,
       qbAccountId: "",
+      categoryCode: "",
       projectCode: settings.default_project,
       issuedAt: "",
       payOnDate: "",
@@ -112,6 +113,18 @@ export default function AnalyzeForm({
     }
   }, [file.filename, settings, extraFields, file.cachedParseResult])
   const [formData, setFormData] = useState(initialFormState)
+
+  // Auto-calculate payOnDate as issuedAt minus 5 days
+  useEffect(() => {
+    if (formData.issuedAt) {
+      const issuedDate = new Date(formData.issuedAt)
+      const payDate = subDays(issuedDate, 5)
+      const payDateStr = payDate.toISOString().split('T')[0]
+      if (formData.payOnDate !== payDateStr) {
+        setFormData(prev => ({ ...prev, payOnDate: payDateStr }))
+      }
+    }
+  }, [formData.issuedAt])
 
   // Check if merchant is a known vendor
   const isUnknownVendor = useMemo(() => {
@@ -290,13 +303,13 @@ export default function AnalyzeForm({
             required={fieldMap.issuedAt.isRequired}
           />
           
-          <FormInput
-            title="Pay On Date"
-            type="date"
-            name="payOnDate"
-            value={formData.payOnDate}
-            onChange={(e) => setFormData((prev) => ({ ...prev, payOnDate: e.target.value }))}
-          />
+           <FormInput
+             title="Pay On Date (auto: due - 5 days)"
+             type="date"
+             name="payOnDate"
+             value={formData.payOnDate}
+             onChange={(e) => setFormData((prev) => ({ ...prev, payOnDate: e.target.value }))}
+           />
 
           <FormSelect
             title="Pay Type"

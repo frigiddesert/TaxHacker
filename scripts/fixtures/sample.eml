@@ -1,0 +1,33 @@
+From: billing@example.com
+To: taxhacker@localhost
+Subject: Invoice Attached
+Date: Sat, 13 Sep 2025 02:50:00 +0000
+Message-ID: <sample-eml-001@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY"
+
+--BOUNDARY
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+Hello,
+
+Please find your invoice attached as a PDF.
+
+Thanks.
+
+--BOUNDARY
+Content-Type: application/pdf; name="invoice.pdf"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice.pdf"
+
+JVBERi0xLjQKMSAwIG9iaiA8PC9UeXBlIC9DYXRhbG9nPj4gZW5kb2JqCjIgMCBvYmogPDwvVHlwZSAvUGFnZXMgL0tpZHMgWzMgMCBS
+XSAvQ291bnQgMT4+IGVuZG9iagozIDAgb2JqIDw8L1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAyMDAgMjAw
+XSAvQ29udGVudHMgNCAwIFI+PiBlbmRvYmoKNSAwIG9iaiA8PC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMS9CYXNlRm9udC9IZWx2
+ZXRpY2E+PiBlbmRvYmoKNCAwIG9iaiA8PC9MZW5ndGggNDQ+PiBzdHJlYW0KQlQgL0YxIDEyIFRmIDcyIDEyMCBUZCAoSGVsbG8gSW52
+b2ljZSkgVGoKRUQKZW5kc3RyZWFtCmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCiAwMDAwMDAwMDA5IDAwMDAwIGYg
+CjAwMDAwMDAwNTAgMDAwMDAgZiAKMDAwMDAwMDE1MSAwMDAwMCBmIAowMDAwMDAwMjM4IDAwMDAwIGYgCjAwMDAwMDAzMDAgMDAwMDAg
+ZiAKdHJhaWxlciA8PC9TaXplIDYgL1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKNzYKJSVFQUYlRUJECg==
+
+--BOUNDARY--
+

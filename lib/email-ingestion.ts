@@ -114,7 +114,7 @@ export class EmailIngestionService {
             if (!message.source) {
               throw new Error('Empty message source')
             }
-            const attachmentHashes = await this.processEmail(message.source as Buffer, message.envelope);
+            const attachmentHashes = await this.processEmail(message.source as Buffer, message.envelope, uid, uidValidity, this.config.mailbox);
             await prisma.emailIngestionLog.update({
               where: {
                 userId_mailbox_uidValidity_uid: {
@@ -149,7 +149,7 @@ export class EmailIngestionService {
     }
   }
 
-  private async processEmail(emailSource: Buffer, envelope: any): Promise<string[] | null> {
+  private async processEmail(emailSource: Buffer, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<string[] | null> {
     try {
       const parsed = await simpleParser(emailSource);
       const user = await getCurrentUser();
@@ -160,7 +160,7 @@ export class EmailIngestionService {
         const hasPdf = this.hasPdfAttachment(parsed)
         if (hasPdf) {
           console.log('[Email] Known vendor matched, ingesting attachments:', matchedVendor.name)
-          return await this.processInvoiceEmail(parsed, envelope);
+          return await this.processInvoiceEmail(parsed, envelope, uid, uidValidity, mailbox);
         }
       }
 
@@ -168,7 +168,7 @@ export class EmailIngestionService {
       if (this.isInvoiceHeuristic(parsed)) {
         if (this.hasPdfAttachment(parsed)) {
           console.log('[Email] Heuristic matched with PDF, ingesting')
-          return await this.processInvoiceEmail(parsed, envelope)
+          return await this.processInvoiceEmail(parsed, envelope, uid, uidValidity, mailbox)
         }
       }
 
@@ -176,7 +176,7 @@ export class EmailIngestionService {
       const shouldIngest = await this.classifyWithLLM(user.id, parsed)
       if (shouldIngest && this.hasPdfAttachment(parsed)) {
         console.log('[Email] LLM classified as invoice, ingesting')
-        return await this.processInvoiceEmail(parsed, envelope)
+        return await this.processInvoiceEmail(parsed, envelope, uid, uidValidity, mailbox)
       }
     } catch (error) {
       console.error('Error parsing email:', error);
@@ -276,7 +276,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     }
   }
 
-  private async processInvoiceEmail(parsed: any, envelope: any): Promise<string[] | null> {
+  private async processInvoiceEmail(parsed: any, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<string[] | null> {
     try {
       const user = await getCurrentUser(); // This assumes a single user system for now
       if (!user) return null;
@@ -290,12 +290,12 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
       for (const attachment of pdfAttachments) {
         const hash = crypto.createHash('sha256').update(attachment.content).digest('hex')
         hashes.push(hash)
-        await this.processPdfAttachment(attachment, user.id, envelope);
+        await this.processPdfAttachment(attachment, user.id, envelope, uid, uidValidity, mailbox);
       }
 
       // Also save the email body as a text file for analysis
       if (parsed.text || parsed.html) {
-        await this.saveEmailContent(parsed, user.id, envelope);
+        await this.saveEmailContent(parsed, user.id, envelope, uid, uidValidity, mailbox);
       }
       return hashes
     } catch (error) {
@@ -304,7 +304,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     }
   }
 
-  private async processPdfAttachment(attachment: any, userId: string, envelope: any): Promise<void> {
+  private async processPdfAttachment(attachment: any, userId: string, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<void> {
     const fileUuid = randomUUID();
     const filename = attachment.filename || `invoice_${Date.now()}.pdf`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
@@ -327,7 +327,10 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
         source: 'email',
         from: envelope.from?.[0]?.address,
         subject: envelope.subject,
-        receivedDate: new Date().toISOString(),
+        receivedDate: envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString(),
+        emailUid: uid,
+        emailUidValidity: uidValidity.toString(),
+        emailMailbox: mailbox,
         size: attachment.content.length
       }
     });
@@ -335,7 +338,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     console.log(`Saved PDF attachment: ${filename}`);
   }
 
-  private async saveEmailContent(parsed: any, userId: string, envelope: any): Promise<void> {
+  private async saveEmailContent(parsed: any, userId: string, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<void> {
     const fileUuid = randomUUID();
     const filename = `email_${Date.now()}.txt`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
@@ -348,7 +351,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     // Save email content as text
     const emailContent = `From: ${envelope.from?.[0]?.address}
 Subject: ${envelope.subject}
-Date: ${new Date().toISOString()}
+Date: ${envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString()}
 
 ${parsed.text || parsed.html}`;
 
@@ -364,7 +367,10 @@ ${parsed.text || parsed.html}`;
         source: 'email',
         from: envelope.from?.[0]?.address,
         subject: envelope.subject,
-        receivedDate: new Date().toISOString(),
+        receivedDate: envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString(),
+        emailUid: uid,
+        emailUidValidity: uidValidity.toString(),
+        emailMailbox: mailbox,
         size: emailContent.length
       }
     });
