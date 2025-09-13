@@ -3,11 +3,16 @@
   "version": "0.5.5",
   "private": true,
   "type": "module",
-  "scripts": {
+"scripts": {
     "dev": "next dev -p 7331 --turbopack",
     "build": "next build",
     "start": "prisma migrate deploy && next start",
     "lint": "next lint",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "cypress:open": "cypress open",
+    "cypress:run": "cypress run",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
