@@ -72,6 +72,8 @@ EMAIL_INGESTION_MAILBOX=INBOX
 EMAIL_INGESTION_FIRST_EMAIL_DATE=2025-01-01
 ```
 
+> Note: Some IMAP servers (including Dovecot installations) reject comma-separated UID ranges. TaxHacker now fetches each UID sequentially to avoid `Invalid messageset` errors. If emails are skipped, watch the server logs for `Fetch <uid>` warnings to identify problematic messages.
+
 ### Testing Email Processing
 
 1. **Manual Check**: Visit `/unsorted` and click "Check Emails Now"
@@ -80,6 +82,7 @@ EMAIL_INGESTION_FIRST_EMAIL_DATE=2025-01-01
    npm run email:headers  # View recent email headers
    npm run email:check    # Process emails once
    ```
+   (Both commands now run through `tsx`, so ensure dependencies are installed via `npm install` first.)
 3. **View Results**: Check `/unsorted` for newly processed emails
 
 ### Email Processing Flow

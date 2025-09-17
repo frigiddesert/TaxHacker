@@ -144,28 +144,40 @@ class EmailIngestionService {
           }
           
           console.log(`Found ${searchResults.length} emails to process`);
-          
-          // Fetch messages in smaller batches to avoid issues
-          const batchSize = 10;
-          for (let i = 0; i < searchResults.length; i += batchSize) {
-            const batch = searchResults.slice(i, i + batchSize);
-            const uidList = batch.join(',');
-            
-            const messages = await this.client.fetch(uidList, { uid: true, envelope: true, source: true });
-            
-            for await (const message of messages) {
-              // Skip if already processed
-              if (message.uid <= lastUid) continue;
-              
-              // Apply date filtering if configured
-              if (emailConfig.firstEmailDate) {
-                const firstDate = new Date(emailConfig.firstEmailDate);
-                const messageDate = message.envelope?.date ? new Date(message.envelope.date) : null;
-                if (!messageDate || messageDate < firstDate) continue;
-              }
-              
-              await this.processMessage(message, user, uidValidity);
+
+          const sortedUids = [...searchResults].sort((a, b) => a - b);
+
+          for (const uid of sortedUids) {
+            if (uid <= lastUid) continue;
+
+            let message: any;
+            try {
+              message = await this.client.fetchOne(uid, {
+                uid: true,
+                envelope: true,
+                source: true,
+              });
+            } catch (fetchError) {
+              console.error(`Error fetching UID ${uid}:`, fetchError);
+              await this.logFetchFailure(user.id, uid, uidValidity, fetchError);
+              continue;
             }
+
+            if (!message) {
+              console.warn(`Fetch for UID ${uid} returned empty result`);
+              await this.logFetchFailure(user.id, uid, uidValidity, new Error('Empty fetch result'));
+              continue;
+            }
+
+            if (emailConfig.firstEmailDate) {
+              const firstDate = new Date(emailConfig.firstEmailDate);
+              const messageDate = message.envelope?.date ? new Date(message.envelope.date) : null;
+              if (!messageDate || messageDate < firstDate) {
+                continue;
+              }
+            }
+
+            await this.processMessage(message, user, uidValidity);
           }
         } catch (searchError) {
           console.error('Error searching emails:', searchError);
@@ -176,6 +188,42 @@ class EmailIngestionService {
       }
     } catch (error) {
       console.error('Error polling emails:', error);
+    }
+  }
+
+  private async logFetchFailure(userId: string, uid: number, uidValidity: bigint, err: unknown): Promise<void> {
+    const message = err instanceof Error ? err.message : String(err);
+
+    try {
+      await getPrismaClient().emailIngestionLog.upsert({
+        where: {
+          userId_mailbox_uidValidity_uid: {
+            userId,
+            mailbox: emailConfig.mailbox,
+            uidValidity,
+            uid,
+          },
+        },
+        update: {
+          status: 'error',
+          error: message,
+        },
+        create: {
+          userId,
+          mailbox: emailConfig.mailbox,
+          uidValidity,
+          uid,
+          messageId: null,
+          internalDate: null,
+          from: null,
+          subject: '',
+          status: 'error',
+          attachmentHashes: [],
+          error: message,
+        },
+      });
+    } catch (loggingError) {
+      console.error('Failed to log fetch error:', loggingError);
     }
   }
 
@@ -464,11 +512,17 @@ ${parsed.text || parsed.html}`;
 
 // Main function to start the email processor
 async function main() {
-  // Check if required environment variables are set
-  if (!process.env.IMAP_USER || !process.env.IMAP_PASS) {
-    console.error('IMAP_USER and IMAP_PASS environment variables must be set');
+  // Check if required environment variables are set (fall back to EMAIL_INGESTION_* for compatibility)
+  const imapUser = process.env.IMAP_USER || process.env.EMAIL_INGESTION_USER;
+  const imapPass = process.env.IMAP_PASS || process.env.EMAIL_INGESTION_PASSWORD;
+
+  if (!imapUser || !imapPass) {
+    console.error('IMAP credentials must be set via IMAP_* or EMAIL_INGESTION_* environment variables');
     process.exit(1);
   }
+
+  process.env.IMAP_USER = imapUser;
+  process.env.IMAP_PASS = imapPass;
 
   if (!process.env.DATABASE_URL) {
     console.error('DATABASE_URL environment variable must be set');

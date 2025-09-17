@@ -10,7 +10,7 @@ import { createCanvas } from "canvas"
 
 // Lazy import for pdfjs to keep cold path lighter
 async function renderWithPdfJs(origFilePath: string, outDir: string, maxPages: number) {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.js")
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs")
   // For Node environment worker is not required when using the legacy build
   const data = await fs.readFile(origFilePath)
   const doc = await pdfjs.getDocument({ data: new Uint8Array(data) }).promise

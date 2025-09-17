@@ -1,7 +1,14 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { getLLMSettings } from '@/models/settings'
-import { requestLLM } from '@/ai/providers/llmProvider'
+// Hardcoded for testing - normally from settings
+const settings = {
+  llmProvider: 'openai',
+  openai_api_key: process.env.OPENAI_API_KEY || 'sk-proj-fake-key-for-testing', // Use env or fallback
+  model: 'gpt-4o-mini',
+  temperature: 0.1,
+  maxTokens: 1000
+}
+import { requestLLM } from '../ai/providers/llmProvider.js' // Relative path
 
 async function main() {
   const UPLOAD_PATH = process.env.UPLOAD_PATH || './data/uploads'
@@ -9,7 +16,7 @@ async function main() {
   const buf = await readFile(pdf)
   const base64 = buf.toString('base64')
 
-  const settings = getLLMSettings({})
+  // Using hardcoded settings
   const res = await requestLLM(settings, {
     prompt: 'Extract a memo and a total from this invoice. Respond JSON with {"name","merchant","total","issuedAt","memo"}.',
     schema: {
