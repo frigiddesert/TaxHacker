@@ -85,10 +85,10 @@ export function ManualEmailCheckButton() {
           
           {resultDetails && lastResult === 'success' && (
             <div className="text-xs text-gray-500 space-y-1 bg-gray-50 p-2 rounded">
-              <div>📧 Total Found: {resultDetails.totalFetched}</div>
-              <div>✅ Processed: {resultDetails.processed}</div>
-              <div>⏭️ Skipped: {resultDetails.skipped}</div>
-              {resultDetails.failed > 0 && <div>❌ Failed: {resultDetails.failed}</div>}
+              <div>Total found: {resultDetails.totalFetched}</div>
+              <div>Processed: {resultDetails.processed}</div>
+              <div>Skipped: {resultDetails.skipped}</div>
+              {resultDetails.failed > 0 && <div>Failed: {resultDetails.failed}</div>}
               {resultDetails.errors?.length > 0 && (
                 <div className="text-red-600">
                   Errors: {resultDetails.errors.slice(0, 2).join(', ')}

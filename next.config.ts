@@ -2,12 +2,6 @@ import { withSentryConfig } from "@sentry/nextjs"
 import type { NextConfig } from "next"
 
 const nextConfig: NextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true, // TODO: fixme
-  },
-  typescript: {
-    ignoreBuildErrors: true, // Temporarily ignore TypeScript errors
-  },
   experimental: {
     serverActions: {
       bodySizeLimit: "256mb",

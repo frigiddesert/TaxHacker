@@ -1,13 +1,21 @@
-import { describe, it, expect, vi } from 'vitest'
-import { EmailIngestionService } from '@/lib/email-ingestion'
-import { getCurrentUser } from '@/lib/auth'
-import { createFile } from '@/models/files'
+import { describe, it, expect, jest } from '@jest/globals'
 
-// Mock dependencies
-vi.mock('@/lib/auth', () => ({ getCurrentUser: vi.fn() }))
-vi.mock('@/models/files', () => ({ createFile: vi.fn() }))
-vi.mock('imapflow', () => ({ ImapFlow: vi.fn() }))
-vi.mock('mailparser', () => ({ simpleParser: vi.fn() }))
+jest.mock('@/lib/auth', () => ({
+  getBackgroundUser: jest.fn().mockResolvedValue({ id: 'user1', email: 'test@example.com' }),
+}))
+
+jest.mock('@/models/files', () => ({ createFile: jest.fn() }))
+jest.mock('@/ai/providers/llmProvider', () => ({ requestLLM: jest.fn() }))
+jest.mock('imapflow', () => ({ ImapFlow: jest.fn() }))
+jest.mock('mailparser', () => ({ simpleParser: jest.fn() }))
+jest.mock('fs/promises', () => ({
+  mkdir: jest.fn().mockResolvedValue(undefined),
+  writeFile: jest.fn().mockResolvedValue(undefined),
+}))
+
+const filesModel = jest.requireMock('@/models/files') as {
+  createFile: jest.Mock
+}
 
 describe('EmailIngestionService', () => {
   const mockUser = { id: 'user1', email: 'test@example.com' }
@@ -17,24 +25,18 @@ describe('EmailIngestionService', () => {
     secure: true,
     auth: { user: 'test', pass: 'pass' },
     mailbox: 'INBOX',
-    pollingInterval: 60000
+    pollingInterval: 60000,
   }
 
   it('saves PDF attachment with email metadata including UID', async () => {
-    vi.mocked(getCurrentUser).mockResolvedValue(mockUser)
-    vi.mocked(createFile).mockResolvedValue({} as any)
-    
+    const { EmailIngestionService } = require('@/lib/email-ingestion') as typeof import('@/lib/email-ingestion')
     const service = new EmailIngestionService(mockConfig)
     const mockAttachment = { filename: 'invoice.pdf', contentType: 'application/pdf', content: Buffer.from('pdf data') }
-    const mockParsed = { attachments: [mockAttachment], text: 'body' }
     const mockEnvelope = { from: [{ address: 'sender@example.com' }], subject: 'Invoice', date: new Date('2025-09-13') }
-    
-    vi.mocked(simpleParser).mockResolvedValue(mockParsed)
-    
-    // Simulate processPdfAttachment call
-    await service['processPdfAttachment'](mockAttachment, mockUser.id, mockEnvelope, 123, BigInt(456), 'INBOX')
-    
-    expect(createFile).toHaveBeenCalledWith(mockUser.id, expect.objectContaining({
+
+    await (service as any).processPdfAttachment(mockAttachment, mockUser, mockEnvelope, 123, BigInt(456), 'INBOX')
+
+    expect(filesModel.createFile).toHaveBeenCalledWith(mockUser.id, expect.objectContaining({
       mimetype: 'application/pdf',
       metadata: expect.objectContaining({
         source: 'email',
@@ -43,8 +45,8 @@ describe('EmailIngestionService', () => {
         receivedDate: expect.stringContaining('2025-09-13'),
         emailUid: 123,
         emailUidValidity: '456',
-        emailMailbox: 'INBOX'
-      })
+        emailMailbox: 'INBOX',
+      }),
     }))
   })
 })

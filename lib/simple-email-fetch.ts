@@ -9,6 +9,8 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { getUserUploadsDirectory, safePathJoin, unsortedFilePath } from './files';
 import { createFile } from '@/models/files';
+import type { User } from '@/prisma/client';
+import { DEFAULT_FETCH_OPTIONS, fetchSequentialMessages } from '@/lib/email/imap';
 
 export interface SimpleEmailResult {
   totalFetched: number;
@@ -23,159 +25,183 @@ export class SimpleEmailFetch {
   async fetchEmails(force: boolean = false): Promise<SimpleEmailResult> {
     const result: SimpleEmailResult = {
       totalFetched: 0,
-      processed: 0, 
+      processed: 0,
       failed: 0,
-      errors: []
+      errors: [],
     };
 
     try {
-      // Connect to IMAP server
       this.client = new ImapFlow({
         host: config.emailIngestion.host,
         port: config.emailIngestion.port,
         secure: config.emailIngestion.secure,
         auth: {
           user: config.emailIngestion.user,
-          pass: config.emailIngestion.password
-        }
+          pass: config.emailIngestion.password,
+        },
       });
 
       await this.client.connect();
       console.log('Connected to IMAP server');
 
-      // Select mailbox
-      const lock = await this.client.getMailboxLock('INBOX');
+      const mailbox = config.emailIngestion.mailbox || 'INBOX';
+      const lock = await this.client.getMailboxLock(mailbox);
 
       try {
-        // Get mailbox info
         const mb: any = (this.client as any).mailbox;
-        console.log(`Connected to INBOX with ${mb.exists} messages`);
-        const existingMessages = mb.exists || 0;
-
-        if (existingMessages === 0) {
+        if (!mb) {
           return result;
         }
 
-        // Get last 20 messages for testing
-        const messageUids = await this.client.search({}, { uid: true });
-        const last20Uids = messageUids.slice(-20);
-        console.log(`Fetching last ${last20Uids.length} messages`);
+        const uidValidity = BigInt(mb.uidValidity ?? 0);
+        const user = await getCurrentUser();
 
-        if (last20Uids.length === 0) {
-          console.warn('No message UIDs found to fetch');
+        const rawUids = await this.client.search({}, { uid: true });
+        const messageUids: number[] = Array.isArray(rawUids) ? rawUids : [];
+        if (messageUids.length === 0) {
+          console.log('No messages found in mailbox');
           return result;
         }
 
-        // Fetch messages one-by-one to support servers rejecting comma-separated UID ranges
-        result.totalFetched = last20Uids.length;
-        const uidValidity = BigInt(mb.uidValidity || 0);
+        const sortedUids = [...messageUids].sort((a, b) => a - b);
+        let uidsToFetch = sortedUids;
 
-        for (const uid of last20Uids) {
-          let message: any;
+        if (!force) {
+          const last = await prisma.emailIngestionLog.aggregate({
+            _max: { uid: true },
+            where: { userId: user.id, mailbox, uidValidity },
+          });
+          const lastUid = last._max.uid ?? 0;
+          uidsToFetch = sortedUids.filter((uid) => uid > lastUid);
+        }
 
-          try {
-            message = await this.client.fetchOne(uid, {
-              uid: true,
-              envelope: true,
-              source: true,
-              internalDate: true
-            });
-          } catch (fetchError: any) {
-            console.error(`Error fetching message ${uid}:`, fetchError);
-            result.errors.push(`Fetch ${uid}: ${fetchError.message}`);
-            result.failed++;
-            continue;
-          }
+        if (uidsToFetch.length === 0) {
+          console.log('No new emails to process');
+          return result;
+        }
 
-          if (!message) {
-            console.warn(`Fetch for message ${uid} returned empty result`);
-            result.errors.push(`Fetch ${uid}: empty result`);
-            result.failed++;
-            continue;
-          }
+        result.totalFetched = uidsToFetch.length;
 
-          try {
-            const user = await getCurrentUser();
-            if (!user) throw new Error('User not authenticated');
-
+        await fetchSequentialMessages(
+          this.client,
+          uidsToFetch,
+          async (uid, message) => {
             const messageId = message.envelope?.messageId || `msg-${uid}`;
             const from = message.envelope?.from?.[0]?.address || 'unknown';
             const subject = message.envelope?.subject || '(no subject)';
-            const date = message.internalDate || message.envelope?.date || new Date();
+            const internalDate = message.internalDate || message.envelope?.date || new Date();
 
-            console.log(`Processing message ${uid}: ${subject} from ${from}`);
+            try {
+              console.log(`Processing message ${uid}: ${subject} from ${from}`);
+              await prisma.emailIngestionLog.upsert({
+                where: {
+                  userId_mailbox_uidValidity_uid: {
+                    userId: user.id,
+                    mailbox,
+                    uidValidity,
+                    uid,
+                  },
+                },
+                update: {
+                  messageId,
+                  internalDate: new Date(internalDate),
+                  from,
+                  subject,
+                  status: 'pending',
+                  attachmentHashes: [],
+                },
+                create: {
+                  userId: user.id,
+                  mailbox,
+                  uidValidity,
+                  uid,
+                  messageId,
+                  internalDate: new Date(internalDate),
+                  from,
+                  subject,
+                  status: 'pending',
+                  attachmentHashes: [],
+                },
+              });
 
-            // Parse email content
-            if (!message.source) {
-              throw new Error('Empty message source');
-            }
-
-            const parsed = await simpleParser(message.source as Buffer);
-
-            // Save to database as simple log entry
-            await prisma.emailIngestionLog.create({
-              data: {
-                userId: user.id,
-                mailbox: 'INBOX',
-                uidValidity,
-                uid,
-                messageId,
-                internalDate: new Date(date),
-                from,
-                subject,
-                status: 'pending',
-                attachmentHashes: []
+              if (!message.source) {
+                throw new Error('Empty message source');
               }
-            });
 
-            // Save email as text file
-            await this.saveEmailAsFile(parsed, user, message.envelope, uid, 'INBOX', uidValidity);
+              const parsed = await simpleParser(message.source as Buffer);
 
-            // Save any PDF attachments
-            const pdfAttachments = parsed.attachments?.filter(att =>
-              att.contentType === 'application/pdf'
-            ) || [];
+              await this.saveEmailAsFile(parsed, user, message.envelope, uid, mailbox, uidValidity);
 
-            for (const attachment of pdfAttachments) {
-              await this.savePdfAttachment(attachment, user, uid, 'INBOX', uidValidity);
-            }
+              const pdfAttachments = parsed.attachments?.filter((att: any) => att.contentType === 'application/pdf') || [];
+              const attachmentHashes = pdfAttachments.map((attachment: any) =>
+                crypto.createHash('sha256').update(attachment.content).digest('hex')
+              );
 
-            // Update status to processed
-            await prisma.emailIngestionLog.updateMany({
-              where: {
-                userId: user.id,
-                uid,
-                mailbox: 'INBOX'
-              },
-              data: {
-                status: 'processed',
-                attachmentHashes: pdfAttachments.map(att =>
-                  crypto.createHash('sha256').update(att.content).digest('hex')
-                )
+              for (const attachment of pdfAttachments) {
+                await this.savePdfAttachment(attachment, user, uid, mailbox, uidValidity);
               }
-            });
 
-            result.processed++;
+              await prisma.emailIngestionLog.update({
+                where: {
+                  userId_mailbox_uidValidity_uid: {
+                    userId: user.id,
+                    mailbox,
+                    uidValidity,
+                    uid,
+                  },
+                },
+                data: { status: 'processed', attachmentHashes },
+              });
 
-          } catch (error: any) {
-            console.error(`Error processing message ${uid}:`, error);
-            result.errors.push(`Message ${uid}: ${error.message}`);
-            result.failed++;
+              result.processed++;
+            } catch (error: any) {
+              result.failed++;
+              const errorMessage = error?.message || String(error);
+              result.errors.push(`Message ${uid}: ${errorMessage}`);
+
+              try {
+                await prisma.emailIngestionLog.update({
+                  where: {
+                    userId_mailbox_uidValidity_uid: {
+                      userId: user.id,
+                      mailbox,
+                      uidValidity,
+                      uid,
+                    },
+                  },
+                  data: { status: 'error', error: errorMessage },
+                });
+              } catch (updateError) {
+                console.error('Failed to update log entry with error status:', updateError);
+              }
+            }
+          },
+          {
+            fetchOptions: DEFAULT_FETCH_OPTIONS,
+            onMissing: async (uid) => {
+              console.warn(`Fetch ${uid}: empty result`);
+              result.failed++;
+              result.errors.push(`Fetch ${uid}: empty result`);
+            },
+            onError: async (uid, error) => {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.error(`Error fetching message ${uid}:`, error);
+              result.failed++;
+              result.errors.push(`Fetch ${uid}: ${errorMessage}`);
+            },
           }
-        }
-
+        );
       } finally {
         lock.release();
       }
 
       return result;
-
     } catch (error: any) {
-      result.errors.push(`Connection/Setup error: ${error.message}`);
+      const errorMessage = error?.message || String(error);
+      result.errors.push(`Connection/Setup error: ${errorMessage}`);
       console.error('Error during email fetch:', error);
       return result;
     } finally {
-      // Cleanup connection
       if (this.client) {
         try {
           await this.client.logout();
@@ -187,12 +213,12 @@ export class SimpleEmailFetch {
     }
   }
 
-  private async saveEmailAsFile(parsed: any, user: { id: string; email: string }, envelope: any, uid: number, mailbox: string, uidValidity: bigint): Promise<void> {
+  private async saveEmailAsFile(parsed: any, user: User, envelope: any, uid: number, mailbox: string, uidValidity: bigint): Promise<void> {
     const fileUuid = randomUUID();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `email_${uid}_${timestamp}.txt`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory(user as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     await fs.mkdir(path.dirname(fullFilePath), { recursive: true });
@@ -200,7 +226,7 @@ export class SimpleEmailFetch {
     const emailContent = `From: ${envelope?.from?.[0]?.address || 'Unknown'}
 To: ${envelope?.to?.[0]?.address || 'Unknown'}
 Subject: ${envelope?.subject || '(no subject)'}
-Date: ${envelope?.date || new Date()}
+Date: ${envelope?.date ? new Date(envelope.date).toISOString() : new Date().toISOString()}
 Message-ID: ${envelope?.messageId || 'unknown'}
 
 --- Email Content ---
@@ -218,7 +244,7 @@ ${parsed.text || parsed.html || '(no content)'}`;
         source: 'email',
         from: envelope?.from?.[0]?.address,
         subject: envelope?.subject,
-        receivedDate: new Date().toISOString(),
+        receivedDate: envelope?.date ? new Date(envelope.date).toISOString() : new Date().toISOString(),
         size: emailContent.length,
         seqno: uid,
         emailUid: uid,
@@ -231,11 +257,11 @@ ${parsed.text || parsed.html || '(no content)'}`;
     console.log(`Saved email: ${filename}`);
   }
 
-  private async savePdfAttachment(attachment: any, user: { id: string; email: string }, uid: number, mailbox: string, uidValidity: bigint): Promise<void> {
+  private async savePdfAttachment(attachment: any, user: User, uid: number, mailbox: string, uidValidity: bigint): Promise<void> {
     const fileUuid = randomUUID();
     const filename = attachment.filename || `invoice_${uid}.pdf`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory(user as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     await fs.mkdir(path.dirname(fullFilePath), { recursive: true });

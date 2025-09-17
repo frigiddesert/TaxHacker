@@ -4,8 +4,10 @@ import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { createFile } from '@/models/files';
-import { getCurrentUser } from './auth';
+import { getBackgroundUser } from './auth';
 import { getUserUploadsDirectory, safePathJoin, unsortedFilePath } from './files';
+import type { User } from '@/prisma/client';
+import { DEFAULT_FETCH_OPTIONS, fetchSequentialMessages } from '@/lib/email/imap';
 import config from './config';
 import { prisma } from './db';
 import crypto from 'crypto';
@@ -64,7 +66,7 @@ export class EmailFetchService {
       const lock = await this.client.getMailboxLock(config.emailIngestion.mailbox);
       
       try {
-        const user = await getCurrentUser();
+        const user = await getBackgroundUser();
         if (!user) {
           throw new Error('User not authenticated');
         }
@@ -87,135 +89,84 @@ export class EmailFetchService {
         const mb: any = (this.client as any).mailbox;
         const uidValidity = BigInt(mb.uidValidity ?? 0);
 
-        // Fetch email details
-        const messages = await this.client.fetch(messageUids as any, {
-          uid: true,
-          envelope: true,
-          source: true,
-          internalDate: true
-        });
-
-        // Calculate date range for filtering
         const endDate = new Date();
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
 
-        for await (const message of messages) {
-          // Filter by date if not forcing processing
-          if (!force && message.internalDate) {
-            const messageDate = new Date(message.internalDate);
-            if (messageDate < startDate || messageDate > endDate) {
-              console.log(`Skipping email ${message.uid} - outside date range (${messageDate.toISOString()})`);
-              continue;
-            }
-          }
-          const uid = message.uid;
-          const messageId = message.envelope?.messageId || `no-id-${uid}`;
-          const from = message.envelope?.from?.[0]?.address || 'unknown';
-          const subject = message.envelope?.subject || '(no subject)';
+        const sortedUids = [...messageUids].sort((a, b) => a - b);
 
-          try {
-            // Check if we already have this email (unless force is true)
-            if (!force) {
-              const existingLog = await prisma.emailIngestionLog.findUnique({
-                where: {
-                  userId_mailbox_uidValidity_uid: {
-                    userId: user.id,
-                    mailbox: config.emailIngestion.mailbox,
-                    uidValidity,
-                    uid
+        await fetchSequentialMessages(
+          this.client,
+          sortedUids,
+          async (uid, message) => {
+            if (!force && message.internalDate) {
+              const messageDate = new Date(message.internalDate);
+              if (messageDate < startDate || messageDate > endDate) {
+                console.log(`Skipping email ${uid} - outside date range (${messageDate.toISOString()})`);
+                return;
+              }
+            }
+
+            const messageId = message.envelope?.messageId || `no-id-${uid}`;
+            const from = message.envelope?.from?.[0]?.address || 'unknown';
+            const subject = message.envelope?.subject || '(no subject)';
+
+            try {
+              if (!force) {
+                const existingLog = await prisma.emailIngestionLog.findUnique({
+                  where: {
+                    userId_mailbox_uidValidity_uid: {
+                      userId: user.id,
+                      mailbox: config.emailIngestion.mailbox,
+                      uidValidity,
+                      uid
+                    }
                   }
-                }
-              });
-
-              if (existingLog) {
-                result.skipped++;
-                result.details.push({
-                  uid,
-                  messageId,
-                  from,
-                  subject,
-                  status: 'skipped',
-                  reason: `Already processed (status: ${existingLog.status})`
                 });
-                console.log(`Skipping email ${uid} - already processed`);
-                continue;
+
+                if (existingLog) {
+                  result.skipped++;
+                  result.details.push({
+                    uid,
+                    messageId,
+                    from,
+                    subject,
+                    status: 'skipped',
+                    reason: `Already processed (status: ${existingLog.status})`
+                  });
+                  console.log(`Skipping email ${uid} - already processed`);
+                  return;
+                }
               }
-            }
 
-            // Create initial log entry with 'pending' status
-            await prisma.emailIngestionLog.create({
-              data: {
-                userId: user.id,
-                mailbox: config.emailIngestion.mailbox,
-                uidValidity,
-                uid,
-                messageId,
-                internalDate: message.internalDate || message.envelope?.date || new Date(),
-                from,
-                subject,
-                status: 'pending',
-                attachmentHashes: []
-              }
-            });
-
-            // Process the email
-            if (!message.source) {
-              throw new Error('Empty message source');
-            }
-
-            const attachmentHashes = await this.processEmail(
-              message.source as Buffer,
-              message.envelope,
-              user,
-              uid,
-              config.emailIngestion.mailbox,
-              uidValidity
-            );
-
-            // Update log with success
-            await prisma.emailIngestionLog.update({
-              where: {
-                userId_mailbox_uidValidity_uid: {
+              await prisma.emailIngestionLog.create({
+                data: {
                   userId: user.id,
                   mailbox: config.emailIngestion.mailbox,
                   uidValidity,
-                  uid
+                  uid,
+                  messageId,
+                  internalDate: message.internalDate || message.envelope?.date || new Date(),
+                  from,
+                  subject,
+                  status: 'pending',
+                  attachmentHashes: []
                 }
-              },
-              data: {
-                status: 'processed',
-                attachmentHashes: attachmentHashes || []
+              });
+
+              if (!message.source) {
+                throw new Error('Empty message source');
               }
-            });
 
-            result.processed++;
-            result.details.push({
-              uid,
-              messageId,
-              from,
-              subject,
-              status: 'processed'
-            });
+              const attachmentHashes = await this.processEmail(
+                user,
+                message.source as Buffer,
+                message.envelope,
+                uid,
+                config.emailIngestion.mailbox,
+                uidValidity
+              );
 
-            console.log(`Processed email ${uid}: ${subject} from ${from}`);
-
-          } catch (error: any) {
-            result.failed++;
-            const errorMsg = error?.message || String(error);
-            result.errors.push(`Email ${uid}: ${errorMsg}`);
-            
-            result.details.push({
-              uid,
-              messageId,
-              from,
-              subject,
-              status: 'failed',
-              reason: errorMsg
-            });
-
-            // Update log with error
-            try {
               await prisma.emailIngestionLog.update({
                 where: {
                   userId_mailbox_uidValidity_uid: {
@@ -226,17 +177,88 @@ export class EmailFetchService {
                   }
                 },
                 data: {
-                  status: 'error',
-                  error: errorMsg
+                  status: 'processed',
+                  attachmentHashes: attachmentHashes || []
                 }
               });
-            } catch (updateError) {
-              console.error('Failed to update error status in log:', updateError);
-            }
 
-            console.error(`Failed to process email ${uid}:`, error);
+              result.processed++;
+              result.details.push({
+                uid,
+                messageId,
+                from,
+                subject,
+                status: 'processed'
+              });
+
+              console.log(`Processed email ${uid}: ${subject} from ${from}`);
+            } catch (error: any) {
+              result.failed++;
+              const errorMsg = error?.message || String(error);
+              result.errors.push(`Email ${uid}: ${errorMsg}`);
+
+              result.details.push({
+                uid,
+                messageId,
+                from,
+                subject,
+                status: 'failed',
+                reason: errorMsg
+              });
+
+              try {
+                await prisma.emailIngestionLog.update({
+                  where: {
+                    userId_mailbox_uidValidity_uid: {
+                      userId: user.id,
+                      mailbox: config.emailIngestion.mailbox,
+                      uidValidity,
+                      uid
+                    }
+                  },
+                  data: {
+                    status: 'error',
+                    error: errorMsg
+                  }
+                });
+              } catch (updateError) {
+                console.error('Failed to update error status in log:', updateError);
+              }
+
+              console.error(`Failed to process email ${uid}:`, error);
+            }
+          },
+          {
+            fetchOptions: DEFAULT_FETCH_OPTIONS,
+            onMissing: async (uid) => {
+              console.warn(`[Email] Fetch returned empty result for UID ${uid}`);
+              result.failed++;
+              result.errors.push(`Fetch ${uid}: message missing`);
+              result.details.push({
+                uid,
+                messageId: 'unknown',
+                from: 'unknown',
+                subject: '(unavailable)',
+                status: 'failed',
+                reason: 'message missing',
+              });
+            },
+            onError: async (uid, error) => {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`[Email] Failed to fetch UID ${uid}:`, error);
+              result.failed++;
+              result.errors.push(`Fetch ${uid}: ${message}`);
+              result.details.push({
+                uid,
+                messageId: 'unknown',
+                from: 'unknown',
+                subject: '(unavailable)',
+                status: 'failed',
+                reason: message,
+              });
+            },
           }
-        }
+        );
 
       } finally {
         lock.release();
@@ -262,9 +284,9 @@ export class EmailFetchService {
   }
 
   private async processEmail(
+    user: User,
     emailSource: Buffer,
     envelope: any,
-    user: { id: string; email: string },
     uid: number,
     mailbox: string,
     uidValidity: bigint
@@ -401,7 +423,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
     }
   }
 
-  private async processInvoiceEmail(parsed: any, envelope: any, user: { id: string; email: string }, uid: number, mailbox: string, uidValidity: bigint): Promise<string[] | null> {
+  private async processInvoiceEmail(parsed: any, envelope: any, user: User, uid: number, mailbox: string, uidValidity: bigint): Promise<string[] | null> {
     try {
       // Process PDF attachments
       const pdfAttachments = parsed.attachments?.filter((att: any) => 
@@ -430,7 +452,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
 
   private async processPdfAttachment(
     attachment: any,
-    user: { id: string; email: string },
+    user: User,
     envelope: any,
     uid: number,
     mailbox: string,
@@ -439,7 +461,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
     const fileUuid = randomUUID();
     const filename = attachment.filename || `invoice_${Date.now()}.pdf`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory(user as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     // Create directory if it doesn't exist
@@ -473,7 +495,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
 
   private async saveEmailContent(
     parsed: any,
-    user: { id: string; email: string },
+    user: User,
     envelope: any,
     uid: number,
     mailbox: string,
@@ -484,7 +506,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`;
     const fromEmail = envelope.from?.[0]?.address?.split('@')[0] || 'unknown';
     const filename = `email_${fromEmail}_${timestamp}.txt`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory(user as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     // Create directory if it doesn't exist

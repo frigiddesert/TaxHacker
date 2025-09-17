@@ -12,14 +12,14 @@
     "imap:classify": "ts-node imap-classify.ts --env sandbox"
   },
   "dependencies": {
-    "@prisma/client": "^6.6.0",
+    "@prisma/client": "^6.16.1",
     "dotenv": "^16.4.5",
     "imapflow": "^1.0.105",
     "mailparser": "^3.6.5"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "prisma": "^6.6.0",
+    "prisma": "^6.16.1",
     "ts-node": "^10.9.2",
     "typescript": "^5"
   }

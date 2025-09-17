@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 
         // Fallback to vendor defaults if missing
         let categoryCode = (t as any).categoryCode
-        let categoryName = (t as any).category?.name || undefined
+        const categoryName = (t as any).category?.name || undefined
         let className = (t as any).project?.name || undefined
         if ((!categoryCode || !className) && t.merchant) {
           const vendor = await prisma.vendor.findFirst({ where: { userId: user.id, name: t.merchant } })

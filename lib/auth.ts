@@ -119,7 +119,34 @@ export async function getCurrentUser(): Promise<User> {
   // No session or user found
   redirect(config.auth.loginUrl)
 }
+export async function getBackgroundUser(): Promise<User> {
+  if (config.selfHosted.isEnabled) {
+    const user = await getSelfHostedUser()
+    if (!user) {
+      throw new Error("Self-hosted background user not found. Complete onboarding to create the default account.")
+    }
+    return user
+  }
 
+  const configuredEmail = process.env.BACKGROUND_USER_EMAIL || process.env.EMAIL_INGESTION_OWNER
+  if (configuredEmail) {
+    const user = await getUserByEmail(configuredEmail)
+    if (user) {
+      return user
+    }
+    throw new Error(`Background user ${configuredEmail} is not present in the database`)
+  }
+
+  const fallbackUser = await prisma.user.findFirst({
+    orderBy: { createdAt: "asc" },
+  })
+
+  if (!fallbackUser) {
+    throw new Error("No users available for background processing")
+  }
+
+  return fallbackUser
+}
 export function isSubscriptionExpired(user: User) {
   if (config.selfHosted.isEnabled) {
     return false
@@ -133,3 +160,4 @@ export function isAiBalanceExhausted(user: User) {
   }
   return user.aiBalance <= 0
 }
+

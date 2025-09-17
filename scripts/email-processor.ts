@@ -475,37 +475,45 @@ ${parsed.text || parsed.html}`;
 
   // Function to move processed email to "Processed by Accountant" folder
   async moveEmailToProcessedFolder(emailUid: number, emailUidValidity: bigint, emailMailbox: string): Promise<void> {
+    const client = new ImapFlow(emailConfig);
+
     try {
-      const client = new ImapFlow(emailConfig);
       await client.connect();
       console.log('Connected to IMAP server for email moving');
 
-      // Ensure the "Processed by Accountant" folder exists
       const processedFolderName = 'Processed by Accountant';
-      
+
       try {
         await client.mailboxCreate(processedFolderName);
         console.log(`Created folder: ${processedFolderName}`);
       } catch (error) {
-        // Folder might already exist, that's okay
         console.log(`Folder ${processedFolderName} already exists or couldn't be created`);
       }
 
-      // Select the source mailbox
       const lock = await client.getMailboxLock(emailMailbox);
-      
+
       try {
-        // Move the email by UID
+        const mailboxInfo: any = (client as any).mailbox;
+        const currentUidValidity = BigInt(mailboxInfo?.uidValidity ?? 0);
+        if (emailUidValidity && currentUidValidity !== emailUidValidity) {
+          console.warn(`Skipping move for UID ${emailUid}: UIDVALIDITY mismatch (${currentUidValidity} !== ${emailUidValidity})`);
+          return;
+        }
+
         await client.messageMove(emailUid, processedFolderName, { uid: true });
         console.log(`Moved email UID ${emailUid} to ${processedFolderName}`);
       } finally {
         lock.release();
       }
-
-      await client.logout();
     } catch (error) {
       console.error('Failed to move email to processed folder:', error);
       // Don't throw - this is not critical to the main workflow
+    } finally {
+      try {
+        await client.logout();
+      } catch (logoutError) {
+        console.error('Failed to close IMAP connection after move:', logoutError);
+      }
     }
   }
 }

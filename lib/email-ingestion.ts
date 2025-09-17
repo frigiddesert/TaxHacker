@@ -4,8 +4,10 @@ import { mkdir, writeFile } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { createFile } from '@/models/files';
-import { getCurrentUser } from './auth';
+import { getBackgroundUser } from './auth';
 import { getUserUploadsDirectory, safePathJoin, unsortedFilePath } from './files';
+import type { User } from '@/prisma/client';
+import { DEFAULT_FETCH_OPTIONS, fetchSequentialMessages, uidRange } from '@/lib/email/imap';
 import config from './config';
 import { prisma } from './db';
 import crypto from 'crypto';
@@ -75,7 +77,7 @@ export class EmailIngestionService {
         const uidValidity = BigInt(mb.uidValidity ?? 0);
         const uidNext = mb.uidNext || 1;
 
-        const user = await getCurrentUser();
+        const user = await getBackgroundUser();
         const last = await prisma.emailIngestionLog.aggregate({
           _max: { uid: true },
           where: { userId: user.id, mailbox: this.config.mailbox, uidValidity },
@@ -85,62 +87,77 @@ export class EmailIngestionService {
         const endUid = Math.max(startUid, uidNext - 1);
         if (endUid < startUid) return;
 
-        const range = `${startUid}:${endUid}`;
-        const messages = await this.client.fetch(range, { uid: true, envelope: true, source: true });
-
-        for await (const message of messages) {
-          const uid: number = message.uid;
-          // Try to insert log; if exists, skip
-          try {
-            await prisma.emailIngestionLog.create({
-              data: {
-                userId: user.id,
-                mailbox: this.config.mailbox,
-                uidValidity,
-                uid,
-                messageId: message.envelope?.messageId || null,
-                internalDate: message.envelope?.date || null,
-                from: message.envelope?.from?.map((a: any) => a.address || a.name).join(', '),
-                subject: message.envelope?.subject || '',
-                status: 'pending',
-              },
-            });
-          } catch (e: any) {
-            // Unique violation -> already processed or in-progress
-            continue;
-          }
-
-          try {
-            if (!message.source) {
-              throw new Error('Empty message source')
+        await fetchSequentialMessages(
+          this.client,
+          uidRange(startUid, endUid),
+          async (uid, message) => {
+            try {
+              await prisma.emailIngestionLog.create({
+                data: {
+                  userId: user.id,
+                  mailbox: this.config.mailbox,
+                  uidValidity,
+                  uid,
+                  messageId: message.envelope?.messageId || null,
+                  internalDate: message.envelope?.date || null,
+                  from: message.envelope?.from?.map((a: any) => a.address || a.name).join(', '),
+                  subject: message.envelope?.subject || '',
+                  status: 'pending',
+                },
+              });
+            } catch (createError) {
+              console.warn('[Email] Skipping UID due to log insert failure:', createError);
+              return;
             }
-            const attachmentHashes = await this.processEmail(message.source as Buffer, message.envelope, uid, uidValidity, this.config.mailbox);
-            await prisma.emailIngestionLog.update({
-              where: {
-                userId_mailbox_uidValidity_uid: {
-                  userId: user.id,
-                  mailbox: this.config.mailbox,
-                  uidValidity,
-                  uid,
+
+            try {
+              if (!message.source) {
+                throw new Error('Empty message source');
+              }
+              const attachmentHashes = await this.processEmail(
+                user,
+                message.source as Buffer,
+                message.envelope,
+                uid,
+                uidValidity,
+                this.config.mailbox
+              );
+              await prisma.emailIngestionLog.update({
+                where: {
+                  userId_mailbox_uidValidity_uid: {
+                    userId: user.id,
+                    mailbox: this.config.mailbox,
+                    uidValidity,
+                    uid,
+                  },
                 },
-              },
-              data: { status: 'processed', attachmentHashes: attachmentHashes || [] },
-            });
-          } catch (error: any) {
-            console.error('Failed to process email:', error);
-            await prisma.emailIngestionLog.update({
-              where: {
-                userId_mailbox_uidValidity_uid: {
-                  userId: user.id,
-                  mailbox: this.config.mailbox,
-                  uidValidity,
-                  uid,
+                data: { status: 'processed', attachmentHashes: attachmentHashes || [] },
+              });
+            } catch (error: any) {
+              console.error('Failed to process email:', error);
+              await prisma.emailIngestionLog.update({
+                where: {
+                  userId_mailbox_uidValidity_uid: {
+                    userId: user.id,
+                    mailbox: this.config.mailbox,
+                    uidValidity,
+                    uid,
+                  },
                 },
-              },
-              data: { status: 'error', error: String(error?.message || error) },
-            });
+                data: { status: 'error', error: String(error?.message || error) },
+              });
+            }
+          },
+          {
+            fetchOptions: DEFAULT_FETCH_OPTIONS,
+            onMissing: async (uid) => {
+              console.warn(`[Email] Fetch returned empty result for UID ${uid}`);
+            },
+            onError: async (uid, error) => {
+              console.error(`[Email] Failed to fetch UID ${uid}:`, error);
+            },
           }
-        }
+        );
       } finally {
         lock.release();
       }
@@ -149,18 +166,23 @@ export class EmailIngestionService {
     }
   }
 
-  private async processEmail(emailSource: Buffer, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<string[] | null> {
+  private async processEmail(
+    user: User,
+    emailSource: Buffer,
+    envelope: any,
+    uid: number,
+    uidValidity: bigint,
+    mailbox: string
+  ): Promise<string[] | null> {
     try {
       const parsed = await simpleParser(emailSource);
-      const user = await getCurrentUser();
-
       // Step 1: Known vendor match (domains/emails/subject)
       const matchedVendor = await this.matchKnownVendor(user.id, parsed);
       if (matchedVendor) {
         const hasPdf = this.hasPdfAttachment(parsed)
         if (hasPdf) {
           console.log('[Email] Known vendor matched, ingesting attachments:', matchedVendor.name)
-          return await this.processInvoiceEmail(parsed, envelope, uid, uidValidity, mailbox);
+          return await this.processInvoiceEmail(user, parsed, envelope, uid, uidValidity, mailbox);
         }
       }
 
@@ -168,7 +190,7 @@ export class EmailIngestionService {
       if (this.isInvoiceHeuristic(parsed)) {
         if (this.hasPdfAttachment(parsed)) {
           console.log('[Email] Heuristic matched with PDF, ingesting')
-          return await this.processInvoiceEmail(parsed, envelope, uid, uidValidity, mailbox)
+          return await this.processInvoiceEmail(user, parsed, envelope, uid, uidValidity, mailbox)
         }
       }
 
@@ -176,7 +198,7 @@ export class EmailIngestionService {
       const shouldIngest = await this.classifyWithLLM(user.id, parsed)
       if (shouldIngest && this.hasPdfAttachment(parsed)) {
         console.log('[Email] LLM classified as invoice, ingesting')
-        return await this.processInvoiceEmail(parsed, envelope, uid, uidValidity, mailbox)
+        return await this.processInvoiceEmail(user, parsed, envelope, uid, uidValidity, mailbox)
       }
     } catch (error) {
       console.error('Error parsing email:', error);
@@ -276,11 +298,15 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     }
   }
 
-  private async processInvoiceEmail(parsed: any, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<string[] | null> {
+  private async processInvoiceEmail(
+    user: User,
+    parsed: any,
+    envelope: any,
+    uid: number,
+    uidValidity: bigint,
+    mailbox: string
+  ): Promise<string[] | null> {
     try {
-      const user = await getCurrentUser(); // This assumes a single user system for now
-      if (!user) return null;
-
       // Process PDF attachments
       const pdfAttachments = parsed.attachments?.filter((att: any) => 
         att.contentType === 'application/pdf'
@@ -290,12 +316,12 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
       for (const attachment of pdfAttachments) {
         const hash = crypto.createHash('sha256').update(attachment.content).digest('hex')
         hashes.push(hash)
-        await this.processPdfAttachment(attachment, user.id, envelope, uid, uidValidity, mailbox);
+        await this.processPdfAttachment(attachment, user, envelope, uid, uidValidity, mailbox);
       }
 
       // Also save the email body as a text file for analysis
       if (parsed.text || parsed.html) {
-        await this.saveEmailContent(parsed, user.id, envelope, uid, uidValidity, mailbox);
+        await this.saveEmailContent(parsed, user, envelope, uid, uidValidity, mailbox);
       }
       return hashes
     } catch (error) {
@@ -304,11 +330,11 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     }
   }
 
-  private async processPdfAttachment(attachment: any, userId: string, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<void> {
+  private async processPdfAttachment(attachment: any, user: User, envelope: any, uid: number, uidValidity: bigint, mailbox: string): Promise<void> {
     const fileUuid = randomUUID();
     const filename = attachment.filename || `invoice_${Date.now()}.pdf`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory({ id: userId } as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     // Create directory if it doesn't exist
@@ -318,7 +344,7 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     await writeFile(fullFilePath, attachment.content);
 
     // Create file record in database
-    await createFile(userId, {
+    await createFile(user.id, {
       id: fileUuid,
       filename,
       path: relativeFilePath,
@@ -338,11 +364,11 @@ Answer JSON with is_invoice (boolean) and confidence (0-1). Be conservative.`
     console.log(`Saved PDF attachment: ${filename}`);
   }
 
-  private async saveEmailContent(parsed: any, userId: string, envelope: any, uid: number, uidValidity: BigInt, mailbox: string): Promise<void> {
+  private async saveEmailContent(parsed: any, user: User, envelope: any, uid: number, uidValidity: bigint, mailbox: string): Promise<void> {
     const fileUuid = randomUUID();
     const filename = `email_${Date.now()}.txt`;
     const relativeFilePath = unsortedFilePath(fileUuid, filename);
-    const userUploadsDirectory = getUserUploadsDirectory({ id: userId } as any);
+    const userUploadsDirectory = getUserUploadsDirectory(user);
     const fullFilePath = safePathJoin(userUploadsDirectory, relativeFilePath);
 
     // Create directory if it doesn't exist
@@ -358,7 +384,7 @@ ${parsed.text || parsed.html}`;
     await writeFile(fullFilePath, emailContent);
 
     // Create file record in database
-    await createFile(userId, {
+    await createFile(user.id, {
       id: fileUuid,
       filename,
       path: relativeFilePath,

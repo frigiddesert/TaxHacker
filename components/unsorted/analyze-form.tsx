@@ -260,7 +260,9 @@ export default function AnalyzeForm({
             value={formData.total || ""}
             onChange={(e) => {
               const newValue = parseFloat(e.target.value || "0")
-              !isNaN(newValue) && setFormData((prev) => ({ ...prev, total: newValue }))
+              if (!Number.isNaN(newValue)) {
+                setFormData((prev) => ({ ...prev, total: newValue }))
+              }
             }}
             className="w-32"
             required={fieldMap.total.isRequired}
